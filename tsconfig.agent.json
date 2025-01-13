@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "es2018",
+    "module": "none",
+    "lib": ["es2018"],
+    "skipLibCheck": true,
+    "strict": true,
+    "noImplicitAny": false,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "outFile": "src/init-agent-script.js",
+    "types": ["node", "frida-gum"]
+  },
+  "files": ["src/init-agent-script.ts"]
+} 
