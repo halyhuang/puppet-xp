@@ -84,6 +84,7 @@
   },
   "dependencies": {
     "cuid": "^2.1.8",
+    "frida": "^15.0.12",
     "sidecar": "^0.17.8",
     "xml2js": "^0.4.23",
     "xmlreader": "^0.2.3"
