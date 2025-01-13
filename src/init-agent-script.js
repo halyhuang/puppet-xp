@@ -151,21 +151,6 @@ var wxOffsets = {
         FREE_MM_READ_ITEM_2_OFFSET: 0x76e350,
         FORWARD_PUBLIC_MSG_OFFSET: 0xb73000
     },
-    sendApp: {
-        // send app msg
-        // #define NEW_SHARE_APP_MSG_REQ_OFFSET 0xfb9890
-        NEW_SHARE_APP_MSG_REQ_OFFSET: 0xfb9890,
-        // #define FREE_SHARE_APP_MSG_REQ_OFFSET 0xfbc0d0
-        FREE_SHARE_APP_MSG_REQ_OFFSET: 0xfbc0d0,
-        // #define FREE_SHARE_APP_MSG_REQ_OFFSET 0xfbab40
-        NEW_SHARE_APP_MSG_INFO_OFFSET: 0xfbab40,
-        // #define NEW_WA_UPDATABLE_MSG_INFO_OFFSET 0x7b3290
-        NEW_WA_UPDATABLE_MSG_INFO_OFFSET: 0x7b3290,
-        // #define FREE_WA_UPDATABLE_MSG_INFO_OFFSET 0x79ca10
-        FREE_WA_UPDATABLE_MSG_INFO_OFFSET: 0x79ca10,
-        // #define SEND_APP_MSG_OFFSET 0xfe7840
-        SEND_APP_MSG_OFFSET: 0xfe7840
-    },
     // ocr
     ocr: {
         WX_INIT_OBJ_OFFSET: 0x80a800,
@@ -366,24 +351,7 @@ var checkSupportedFunction = function () {
     var ver = getWechatVersionFunction();
     return ver === availableVersion;
 };
-// 检查是否已登录——done,2024-03-14，call和实现方法来源于ttttupup/wxhelper项目
-var checkLogin = function () {
-    var success = -1;
-    var accout_service_addr = moduleBaseAddress.add(wxOffsets.login.WX_ACCOUNT_SERVICE_OFFSET);
-    // 创建原生函数对象，此处假设该函数返回'pointer'并且不需要输入参数
-    var getAccountService = new NativeFunction(accout_service_addr, 'pointer', []);
-    // 调用原生函数并获取服务地址
-    var service_addr = getAccountService();
-    // 判断服务地址是否有效
-    if (!service_addr.isNull()) {
-        // 成功获取账户服务地址，现在访问0x4E0偏移的值
-        // 注意：针对返回的地址，必须使用正确的类型，这里假设它是DWORD
-        success = service_addr.add(0x4E0).readU32();
-    }
-    // 返回获得的状态值
-    return success;
-};
-// 检查是否已登录
+// 检查是否已登录—
 var isLoggedInFunction = function () {
     var success = -1;
     var accout_service_addr = moduleBaseAddress.add(wxOffsets.login.WX_ACCOUNT_SERVICE_OFFSET);
@@ -400,6 +368,8 @@ var isLoggedInFunction = function () {
         throw new Error(e);
     }
     // console.log('isLoggedInFunction结果:', success)
+    // 813746031、813746031、813746031
+    // console.log('isLoggedInFunction结果=======:', success)
     return success;
 };
 // 登录事件回调,登陆状态下每3s检测一次，非登陆状态下不间断检测且每3s打印一次状态，直到登陆成功
@@ -621,37 +591,35 @@ var getContactNativeFunction = function () {
 };
 // 设置联系人备注——done,2024-03-13，call和实现方法来源于ttttupup/wxhelper项目
 var modifyContactRemarkFunction = function (contactId, text) {
-    // int success = -1;
-    var successPtr = Memory.alloc(4);
-    successPtr.writeS32(-1);
-    // WeChatString contact(wxid);
-    var contactPtr = initidStruct(contactId);
-    // WeChatString content(remark);
-    var contentPtr = initStruct(text);
-    // DWORD mod__addr = base_addr_ + WX_MOD_REMARK_OFFSET;
-    var mod__addr = moduleBaseAddress.add(wxOffsets.contact.WX_MOD_REMARK_OFFSET);
     var txtAsm = Memory.alloc(Process.pageSize);
+    var wxidPtr = Memory.alloc(contactId.length * 2 + 2);
+    wxidPtr.writeUtf16String(contactId);
+    var picWxid = Memory.alloc(0x0c);
+    picWxid.writePointer(ptr(wxidPtr)).add(0x04)
+        .writeU32(contactId.length * 2).add(0x04)
+        .writeU32(contactId.length * 2).add(0x04);
+    var contentPtr = Memory.alloc(text.length * 2 + 2);
+    contentPtr.writeUtf16String(text);
+    var sizeOfStringStruct = Process.pointerSize * 5;
+    var contentStruct = Memory.alloc(sizeOfStringStruct);
+    contentStruct
+        .writePointer(contentPtr).add(0x4)
+        .writeU32(text.length).add(0x4)
+        .writeU32(text.length * 2);
+    // const ecxBuffer = Memory.alloc(0x2d8)
     Memory.patchCode(txtAsm, Process.pageSize, function (code) {
         var writer = new X86Writer(code, {
             pc: txtAsm
         });
-        //     PUSHAD
-        //     PUSHFD
         writer.putPushfx();
         writer.putPushax();
-        //     LEA        EAX,content
-        writer.putMovRegAddress('eax', contentPtr);
-        //     PUSH       EAX
+        writer.putMovRegAddress('eax', contentStruct);
         writer.putPushReg('eax');
-        //     LEA        EAX,contact
-        writer.putMovRegAddress('eax', contactPtr);
-        //     PUSH       EAX
+        writer.putMovRegAddress('eax', picWxid);
+        // writer.putMovRegAddress('ecx', ecxBuffer)
         writer.putPushReg('eax');
-        //     CALL       mod__addr   
-        writer.putCallAddress(mod__addr);
-        writer.putMovNearPtrReg(successPtr, 'eax');
-        //     POPFD
-        //     POPAD
+        writer.putCallAddress(moduleBaseAddress.add(wxOffsets.contact.WX_MOD_REMARK_OFFSET));
+        // writer.putAddRegImm('esp', 0x18);
         writer.putPopax();
         writer.putPopfx();
         writer.putRet();
@@ -659,13 +627,7 @@ var modifyContactRemarkFunction = function (contactId, text) {
     });
     // console.log('----------txtAsm', txtAsm)
     var nativeativeFunction = new NativeFunction(ptr(txtAsm), 'void', []);
-    try {
-        nativeativeFunction();
-        console.log('[设置联系人备注] successPtr:', successPtr.readS32());
-    }
-    catch (e) {
-        console.error('[设置联系人备注]Error:', e);
-    }
+    nativeativeFunction();
 };
 // 示例调用
 // modifyContactRemarkFunction("ledongmao", "超哥xxxxx");
