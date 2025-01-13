@@ -87,7 +87,9 @@
     "frida": "^15.0.12",
     "sidecar": "^0.17.8",
     "xml2js": "^0.4.23",
-    "xmlreader": "^0.2.3"
+    "xmlreader": "^0.2.3",
+     "openai": "^4.0.0",
+     "yaml": "^2.1.3"
   },
   "files": [
     "bin/",
