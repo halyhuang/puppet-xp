@@ -21,6 +21,41 @@ import CozeBot from '../src/coze.js'
 import QRCode from 'qrcode'
 import { PuppetXp } from '../src/mod.js'
 
+// 用于存储最近消息的缓存，用于去重
+const messageCache = new Map<string, { timestamp: number }>();
+// 消息缓存的过期时间（毫秒）
+const MESSAGE_CACHE_EXPIRE = 5 * 1000; // 10秒
+// 清理过期缓存的间隔
+const CACHE_CLEANUP_INTERVAL = 60 * 1000; // 1分钟
+
+// 简单的字符串哈希函数
+function simpleHash(str: string): string {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32-bit integer
+  }
+  return hash.toString(16);
+}
+
+// 生成消息缓存的key
+function generateMessageKey(roomId: string | undefined, text: string): string {
+  const contextId = roomId || 'private';
+  const contentHash = simpleHash(text);
+  return `${contextId}:${contentHash}`;
+}
+
+// 定期清理过期的消息缓存
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, value] of messageCache.entries()) {
+    if (now - value.timestamp > MESSAGE_CACHE_EXPIRE) {
+      messageCache.delete(key);
+    }
+  }
+}, CACHE_CLEANUP_INTERVAL);
+
 /**
  *
  * 1. Declare your Bot!
@@ -103,9 +138,27 @@ async function main() {
           return;
         }
 
+        // 消息去重逻辑
+        const messageText = message.text();
+        const roomId = message.room()?.id;
+        const currentTime = Date.now();
+        const messageKey = generateMessageKey(roomId, messageText);
+        
+        // 检查是否是重复消息
+        const cachedMessage = messageCache.get(messageKey);
+        if (cachedMessage && currentTime - cachedMessage.timestamp < MESSAGE_CACHE_EXPIRE) {
+          console.log('🔄 跳过重复消息内容');
+          return;
+        }
+        
+        // 将新消息添加到缓存
+        messageCache.set(messageKey, {
+          timestamp: currentTime
+        });
+
         console.log(`📨 ${message}`);
-        if (/ding/i.test(message.text())) {
-          await puppet.messageSendText(message.room()?.id || message.talker().id, 'dong')
+        if (/ding/i.test(messageText)) {
+          await puppet.messageSendText(roomId || message.talker().id, 'dong')
         }
         await retryOperation(() => cozeBot.onMessage(message));
       } catch (e) {
