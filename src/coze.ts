@@ -1,8 +1,8 @@
 import { Message } from "wechaty";
 import { ContactInterface, RoomInterface } from "wechaty/impls";
-import { ModelFactory } from './services/modelFactory';
-import { IModelService, IMessage } from './interfaces/model';
-import { Config } from "./config";
+import { ModelFactory } from './services/modelFactory.js';
+import { IModelService, IMessage } from './interfaces/model.js';
+import { Config } from "./config.js";
 
 enum MessageType {
   Unknown = 0,

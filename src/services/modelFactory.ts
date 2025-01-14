@@ -1,7 +1,7 @@
-import { IModelService, IModelConfig } from '../interfaces/model';
-import { CozeService } from './models/coze';
-import { OpenAIService } from './models/openai';
-import { QwenService } from './models/qwen';
+import { IModelService, IModelConfig } from '../interfaces/model.js';
+import { CozeService } from './models/coze.js';
+import { OpenAIService } from './models/openai.js';
+import { QwenService } from './models/qwen.js';
 
 export class ModelFactory {
   static createModel(config: IModelConfig): IModelService {

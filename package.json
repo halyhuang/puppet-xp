@@ -25,7 +25,7 @@
     "copy:esm": "shx cp -R commonjs/ dist/esm/ && shx cp src/init-agent-script.js dist/esm/src",
     "copy:cjs": "shx cp -R commonjs/ dist/cjs/ && shx cp src/init-agent-script.js dist/cjs/src",
     "start": "cross-env NODE_OPTIONS=\"--no-warnings --loader=ts-node/esm\" node examples/ding-dong-bot.ts",
-    "start:ai": "cross-env NODE_OPTIONS=\"--no-warnings --loader=ts-node/esm\" node src/ai-bot.ts",
+    "start:ai": "cross-env NODE_OPTIONS=\"--no-warnings --loader=ts-node/esm\" node examples/ai-bot.ts",
     "quick-start": "cross-env NODE_OPTIONS=\"--no-warnings --loader=ts-node/esm\" node examples/quick-start.ts",
     "start:raw": "cross-env BROLOG_LEVEL=silly NODE_OPTIONS=\"--no-warnings --loader=ts-node/esm\" node examples/raw-sidecar.ts",
     "start:raw:nobuild": "cross-env BROLOG_LEVEL=info NODE_OPTIONS=\"--no-warnings --loader=ts-node/esm\" node examples/raw-sidecar.ts",
@@ -71,6 +71,7 @@
     "@types/faker": "^5.5.9",
     "@types/frida-gum": "^18.5.1",
     "@types/node": "^20.10.5",
+    "@types/qrcode": "^1.5.5",
     "@types/qrcode-terminal": "^0.12.2",
     "@types/xml2js": "^0.4.9",
     "frida-compile": "^16.4.1",
@@ -86,11 +87,12 @@
   "dependencies": {
     "cuid": "^2.1.8",
     "frida": "^15.0.12",
+    "openai": "^4.0.0",
+    "qrcode": "^1.5.1",
     "sidecar": "^0.17.8",
     "xml2js": "^0.4.23",
     "xmlreader": "^0.2.3",
-     "openai": "^4.0.0",
-     "yaml": "^2.1.3"
+    "yaml": "^2.1.3"
   },
   "files": [
     "bin/",
