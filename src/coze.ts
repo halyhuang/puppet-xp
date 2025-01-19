@@ -127,11 +127,11 @@ export default class CozeBot {
   }
 
   // check whether Coze bot can be triggered
-  private triggerCozeMessage(text: string, isPrivateChat: boolean = false): boolean {
-    const cozeTriggerKeyword = this.cozeTriggerKeyword;
+  private async triggerCozeMessage(message: Message, text: string, isPrivateChat: boolean = false): Promise<string> {
+    let returnText = '';
     let triggered = false;
     if (isPrivateChat) {
-      triggered = cozeTriggerKeyword ? text.startsWith(cozeTriggerKeyword) : true;
+      returnText = text;
     } else {
       // due to un-unified @ lagging character, ignore it and just match:
       //    1. the "@username" (mention)
@@ -142,11 +142,20 @@ export default class CozeBot {
       const textWithoutMention = text.slice(textMention.length + 1);
       const followByTriggerKeyword = textWithoutMention.startsWith(this.cozeTriggerKeyword);
       triggered = startsWithMention && !!textWithoutMention && followByTriggerKeyword;
+      // 清理消息内容
+      if (triggered) {
+          returnText = await this.cleanMessage({ message, messageType: message.type(), rawText: text, isPrivateChat });
+      }
+ // 增加对"恭喜发财"的触发条件
+      else if (text.includes('恭喜发财')) { 
+          triggered = true;
+          returnText = "AI财神你好，介绍一下自己，你有什么能力";
+      }
     }
     if (triggered) {
       console.log(`🎯 Coze triggered: ${text}`);
     }
-    return triggered;
+    return returnText;
   }
 
   // filter out the message that does not need to be processed
@@ -251,26 +260,25 @@ export default class CozeBot {
     const talker = message.talker();
     const rawText = message.text();
     const room = message.room();
-    const messageType = message.type();
     const isPrivateChat = !room;
 
     // 检查黑名单和消息有效性
     if (this.isBlacklisted(talker.name()) || 
-        this.isNonsense(talker, messageType, rawText) || 
-        !this.triggerCozeMessage(rawText, isPrivateChat)) {
+        this.isNonsense(talker, message.type(), rawText)) {
       return;
     }
-
+    
+    const text = await this.triggerCozeMessage(message, rawText, isPrivateChat);
+    if (text.length > 0) {
     // 获取发送者名称
     const name = talker.name();
-    // 清理消息内容
-    const text = await this.cleanMessage({ message, messageType, rawText, isPrivateChat });
 
     // 根据是私聊还是群聊分别处理
     if (isPrivateChat) {
       return await this.onPrivateMessage(talker, text, name);
     } else {
       return await this.onGroupMessage(room, text, name);
+    }
     }
   }
 }

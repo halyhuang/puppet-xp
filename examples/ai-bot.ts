@@ -157,9 +157,6 @@ async function main() {
         });
 
         console.log(`📨 ${message}`);
-        if (/ding/i.test(messageText)) {
-          await puppet.messageSendText(roomId || message.talker().id, 'dong')
-        }
         await retryOperation(() => cozeBot.onMessage(message));
       } catch (e) {
         console.error(`❌ Message handling error:`, e);
