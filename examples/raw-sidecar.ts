@@ -32,7 +32,10 @@ async function main () {
   console.info('WeChat Sidecar starting...')
   // new XpSidecar({ wechatVersion: '3.9.2.23' })
 
-  const sidecar = new WeChatSidecar()
+  const sidecar = new WeChatSidecar({
+    version: '3.9.2.23',
+    wechatVersion: '3.9.2.23'
+  })
   await attach(sidecar)
 
   console.info('WeChat Sidecar started.')

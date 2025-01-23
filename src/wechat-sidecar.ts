@@ -16,9 +16,7 @@
  *   limitations under the License.
  *
  */
-import fs from 'fs'
-import path from 'path'
-
+import { log } from 'wechaty-puppet'
 import {
   Sidecar,
   SidecarBody,
@@ -27,9 +25,9 @@ import {
   ParamType,
   Ret,
   agentTarget,
-  // attach,
-  // detach,
-}                 from 'sidecar'
+} from 'sidecar'
+import fs from 'fs'
+import path from 'path'
 
 import { codeRoot } from './cjs.js'
 // import { WeChatVersion } from './agents/winapi-sidecar.js'
@@ -116,6 +114,12 @@ class XpSidecar {
 
 @Sidecar('WeChat.exe', XpSidecar.initAgentScript)
 class WeChatSidecar extends SidecarBody {
+  private agent: any
+
+  constructor(options: any) {
+    super(options)
+    this.agent = new XpSidecar(options)
+  }
 
   // @Call(agentTarget('getTestInfoFunction'))
   // getTestInfo ():Promise<string> { return Ret() }
@@ -128,6 +132,18 @@ class WeChatSidecar extends SidecarBody {
     memberId: string,
     roomId: string,
   ): Promise<string> { return Ret(memberId, roomId) }
+
+  // 添加同步方法
+  public getChatroomMemberNickInfoSync(memberId: string, roomId: string): string {
+    try {
+      // 同步调用 frida 方法
+      const result = this.agent.getChatroomMemberNickInfoSync(memberId, roomId)
+      return result || memberId
+    } catch (e) {
+      log.error('Failed to get chatroom member nick info sync:', e)
+      return memberId
+    }
+  }
 
   @Call(agentTarget('isLoggedInFunction'))
   isLoggedIn ():Promise<boolean> { return Ret() }
@@ -147,7 +163,19 @@ class WeChatSidecar extends SidecarBody {
   ): Promise<string> { return Ret(contactId, text) }
 
   @Call(agentTarget('getChatroomMemberInfoFunction'))
-  getChatroomMemberInfo ():Promise<string> { return Ret() }
+  getChatroomMemberInfo (): Promise<string> { return Ret() }
+
+  // 添加同步方法
+  public getChatroomMemberInfoSync(): string {
+    try {
+      // 同步调用 frida 方法
+      const result = this.agent.getChatroomMemberInfoSync()
+      return result || '[]'
+    } catch (e) {
+      log.error('Failed to get chatroom member info sync:', e)
+      return '[]'
+    }
+  }
 
   @Call(agentTarget('getWechatVersionFunction'))
   getWeChatVersion ():Promise<number> { return Ret() }

@@ -38,7 +38,7 @@ export default class CozeBot {
   cozeTriggerKeyword: string = Config.cozeTriggerKeyword;
 
   // Coze error response
-  cozeErrorMessage: string = '🤖️：Coze智能体摆烂了，请稍后再试～';
+  cozeErrorMessage: string = '🤖️：AI智能体摆烂了，请稍后再试～';
 
   // Coze system content configuration (guided by OpenAI official document)
   currentDate: string = new Date().toISOString().split('T')[0] || '';
@@ -80,6 +80,23 @@ export default class CozeBot {
     }
   }
 
+  // 添加字符集检测函数
+  private isUtf8mb4(str: string): boolean {
+    return /[\u{10000}-\u{10FFFF}]/u.test(str)
+  }
+
+  // 添加字符集处理函数
+  private handleUtf8mb4Text(text: string): string {
+    if (!text) return text
+    
+    // 检测是否包含 utf8mb4 字符
+    const hasUtf8mb4 = this.isUtf8mb4(text)
+    if (hasUtf8mb4) {
+      console.log('检测到 utf8mb4 字符')
+    }
+    return text
+  }
+
   // get clean message by removing reply separater and group mention characters
   private async cleanMessage({
     message,
@@ -98,6 +115,8 @@ export default class CozeBot {
       if (item.length > 1) {
         text = item[item.length - 1] || '';
       }
+      // 添加 utf8mb4 处理
+      text = this.handleUtf8mb4Text(text)
       return text.slice(isPrivateChat ? this.cozeTriggerKeyword.length : this.chatGroupTriggerKeyword.length);
     }
 
@@ -153,7 +172,7 @@ export default class CozeBot {
       }
     }
     if (triggered) {
-      console.log(`🎯 Coze triggered: ${text}`);
+      console.log(`🎯 Coze triggered: ${returnText}`);
     }
     return returnText;
   }
@@ -214,12 +233,16 @@ export default class CozeBot {
 
   // reply with the segmented messages from a single-long message
   private async reply(talker: RoomInterface | ContactInterface, message: string): Promise<void> {
+    // 添加 utf8mb4 处理
+    message = this.handleUtf8mb4Text(message)
+    
     const messages: Array<string> = [];
     while (message.length > this.SINGLE_MESSAGE_MAX_SIZE) {
       messages.push(message.slice(0, this.SINGLE_MESSAGE_MAX_SIZE));
       message = message.slice(this.SINGLE_MESSAGE_MAX_SIZE);
     }
     messages.push(message);
+    
     for (const msg of messages) {
       await talker.say(msg);
     }

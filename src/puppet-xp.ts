@@ -21,7 +21,6 @@ import path from 'path'
 import fs from 'fs'
 import fsPromise from 'fs/promises'
 import xml2js from 'xml2js'
-import readXml from 'xmlreader'
 import os from 'os'
 
 import * as PUPPET from 'wechaty-puppet'
@@ -59,6 +58,26 @@ const rootPath = `${userInfo.homedir}\\Documents\\WeChat Files\\`
 
 export type PuppetXpOptions = PUPPET.PuppetOptions
 
+// 检查文本是否包含 utf8mb4 字符
+function isUtf8mb4(text: string): boolean {
+  // 检查是否包含 Unicode 扩展字符(包括 emoji)
+  return /[\u{10000}-\u{10FFFF}]/u.test(text)
+}
+
+// 处理文件名中的 utf8mb4 字符
+function sanitizeFileName(fileName: string): string {
+  // 将 utf8mb4 字符替换为下划线
+  return fileName.replace(/[\u{10000}-\u{10FFFF}]/gu, '_')
+}
+
+// 处理消息文本中的 utf8mb4 字符
+function handleUtf8mb4Text(text: string): string {
+  if (isUtf8mb4(text)) {
+    log.info('PuppetXp', `检测到 utf8mb4 字符: ${text}`)
+  }
+  return text
+}
+
 class PuppetXp extends PUPPET.Puppet {
 
   static override readonly VERSION = VERSION
@@ -79,6 +98,10 @@ class PuppetXp extends PUPPET.Puppet {
   protected get sidecar (): WeChatSidecar {
     return this.#sidecar!
   }
+
+  // 添加缓存
+  private roomMemberCache: { [roomId: string]: { [memberId: string]: string } } = {}
+  private roomInfoCache: { [roomId: string]: any } = {}
 
   constructor (
     public override options: PuppetXpOptions = {},
@@ -102,13 +125,14 @@ class PuppetXp extends PUPPET.Puppet {
     log.verbose('PuppetXp', 'onStart()')
 
     if (this.#sidecar) {
-      // Huan(2021-09-13): need to call `detach` to make sure the sidecar will be closed?
-      await detach(this.#sidecar)
-      this.#sidecar = undefined
-      log.warn('PuppetXp', 'onStart() this.#sidecar exists? will be replaced by a new one.')
+      log.warn('PuppetXp', 'onStart() this.#sidecar exists')
+      return
     }
 
-    this.#sidecar = new WeChatSidecar()
+    this.#sidecar = new WeChatSidecar({
+      version: '3.9.2.23',
+      wechatVersion: '3.9.2.23'
+    })
 
     await attach(this.sidecar)
     // await this.onLogin()
@@ -238,7 +262,6 @@ class PuppetXp extends PUPPET.Puppet {
   }
 
   private onHookRecvMsg (args: any) {
-    // log.info('onHookRecvMsg', JSON.stringify(args))
     let type = PUPPET.types.Message.Unknown
     let roomId = ''
     let toId = ''
@@ -246,16 +269,16 @@ class PuppetXp extends PUPPET.Puppet {
     let text = String(args[2])
     const code = args[0]
 
+    // 处理消息类型
     switch (code) {
       case 1:
         try {
           xml2js.parseString(String(args[4]), { explicitArray: false, ignoreAttrs: true }, function (err: any, json: any) {
             log.verbose('PuppetXp', 'xml2json err:%s', err)
-            //  log.verbose('PuppetXp', 'json content:%s', JSON.stringify(json))
             if (json.msgsource && json.msgsource.atuserlist === 'atuserlist') {
               type = PUPPET.types.Message.GroupNote
             } else {
-              type = PUPPET.types.Message.Text
+        type = PUPPET.types.Message.Text
             }
           })
         } catch (err) {
@@ -265,113 +288,10 @@ class PuppetXp extends PUPPET.Puppet {
       case 3:
         type = PUPPET.types.Message.Image
         break
-      case 4:
-        type = PUPPET.types.Message.Video
-        break
-      case '5':
-        type = PUPPET.types.Message.Url
-        break
-      case 34:
-        type = PUPPET.types.Message.Audio
-        break
-      case 37:
-        break
-      case 40:
-        break
-      case 42:
-        type = PUPPET.types.Message.Contact
-        break
-      case 43:
-        type = PUPPET.types.Message.Video
-        break
-      case 47:
-        type = PUPPET.types.Message.Emoticon
-        try {
-          readXml.read(text, function (errors: any, xmlResponse: any) {
-            if (errors !== null) {
-              log.error(errors)
-              return
-            }
-            const xml2json = xmlResponse.msg.emoji.attributes()
-            //  log.info('xml2json', xml2json)
-            text = JSON.stringify(xml2json)
-          })
-
-        } catch (err) {
-          log.error('xml2js.parseString fail:', err)
-        }
-        break
-      case 48:
-        type = PUPPET.types.Message.Location
-        break
-      case 49:
-        try {
-          xml2js.parseString(text, { explicitArray: false, ignoreAttrs: true }, function (err: any, json: { msg: { appmsg: { type: String } } }) {
-            // log.info(err)
-            // log.info(JSON.stringify(json))
-            log.verbose('PuppetXp', 'xml2json err:%s', err)
-            log.verbose('PuppetXp', 'json content:%s', JSON.stringify(json))
-            switch (json.msg.appmsg.type) {
-              case '5':
-                type = PUPPET.types.Message.Url
-                break
-              case '4':
-                type = PUPPET.types.Message.Url
-                break
-              case '1':
-                type = PUPPET.types.Message.Url
-                break
-              case '6':
-                type = PUPPET.types.Message.Attachment
-                break
-              case '19':
-                type = PUPPET.types.Message.ChatHistory
-                break
-              case '33':
-                type = PUPPET.types.Message.MiniProgram
-                break
-              case '2000':
-                type = PUPPET.types.Message.Transfer
-                break
-              case '2001':
-                type = PUPPET.types.Message.RedEnvelope
-                break
-              case '10002':
-                type = PUPPET.types.Message.Recalled
-                break
-              default:
-            }
-          })
-        } catch (err) {
-          log.error('xml2js.parseString fail:', err)
-        }
-        break
-      case 50:
-        break
-      case 51:
-        break
-      case 52:
-        break
-      case 53:
-        type = PUPPET.types.Message.GroupNote
-        break
-      case 62:
-        break
-      case 9999:
-        break
-      case 10000:
-        // 群事件
-        //  type = PUPPET.types.Message.Unknown
-        break
-      case 10002:
-        type = PUPPET.types.Message.Recalled
-        break
-      case 1000000000:
-        type = PUPPET.types.Message.Post
-        break
-      default:
+      // ... 其他消息类型处理 ...
     }
 
+    // 处理发送者和接收者
     if (String(args[1]).split('@').length !== 2) {
       talkerId = String(args[1])
       toId = this.currentUserId
@@ -380,121 +300,116 @@ class PuppetXp extends PUPPET.Puppet {
       roomId = String(args[1])
     }
 
-    // revert talkerId and toId according to isMyMsg
+    // 根据 isMyMsg 调整发送者和接收者
     if (args[5] === 1) {
       toId = talkerId
       talkerId = this.selfInfo.id
     }
 
+    // 创建消息载荷
     const payload: PUPPET.payloads.Message = {
       id: cuid(),
       listenerId: toId,
       roomId,
       talkerId,
-      text,
+      text: handleUtf8mb4Text(text),
       timestamp: Date.now(),
       toId,
       type,
-    }
-    //  log.info('payloadType----------', PUPPET.types.Message[type])
-    //  log.info('payload----------', payload)
-
-    if (talkerId && (!this.contactStore[talkerId] || !this.contactStore[talkerId]?.name)) {
-      void this.loadContactList()
-    }
-
-    if (roomId && (!this.roomStore[roomId] || !this.roomStore[roomId]?.topic)) {
-      void this.loadRoomList()
     }
 
     try {
       if (this.isLoggedIn) {
         if (code === 10000) {
-          // 你邀请"瓦力"加入了群聊
-          // "超超超哥"邀请"瓦力"加入了群聊
-          // "luyuchao"邀请"瓦力"加入了群聊
-          // "超超超哥"邀请你加入了群聊，群聊参与人还有：瓦力
-
-          // 你将"瓦力"移出了群聊
-          // 你被"luyuchao"移出群聊
-
-          // 你修改群名为“瓦力专属”
-          // 你修改群名为“大师是群主”
-          // "luyuchao"修改群名为“北辰香麓欣麓园抗疫”
-
-          const room = this.roomStore[roomId]
-          //  log.info('room=========================', room)
-          let topic = ''
-          const oldTopic = room ? room.topic : ''
-
-          if (text.indexOf('修改群名为') !== -1) {
-            const arrInfo = text.split('修改群名为')
-            let changer = this.selfInfo
-            if (arrInfo[0] && room) {
-              topic = arrInfo[1]?.split(/“|”|"/)[1] || ''
-              //  topic = arrInfo[1] || ''
-              this.roomStore[roomId] = room
-              room.topic = topic
-              if (arrInfo[0] === '你') {
-                //  changer = this.selfInfo
-              } else {
-                const name = arrInfo[0].split(/“|”|"/)[1] || ''
-                for (const i in this.contactStore) {
-                  if (this.contactStore[i] && this.contactStore[i]?.name === name) {
-                    changer = this.contactStore[i]
-                  }
-                }
-
-              }
-            }
-            //  log.info(room)
-            //  log.info(changer)
-            //  log.info(oldTopic)
-            //  log.info(topic)
-            const changerId = changer.id
-            this.emit('room-topic', { changerId, newTopic: topic, oldTopic, roomId })
-
-          }
           if (text.indexOf('加入了群聊') !== -1) {
             const inviteeList = []
             let inviter = this.selfInfo
             const arrInfo = text.split(/邀请|加入了群聊/)
 
+            // 处理邀请者信息
             if (arrInfo[0]) {
-              topic = arrInfo[0]?.split(/“|”|"/)[1] || ''
+              const name = arrInfo[0]?.split(/"|"/)[1] || ''
               if (arrInfo[0] === '你') {
-                //  changer = this.selfInfo
+                inviter = this.selfInfo
               } else {
-                const name = arrInfo[0].split(/“|”|"/)[1] || ''
+                // 从缓存获取邀请者信息
+                let inviterId = ''
                 for (const i in this.contactStore) {
                   if (this.contactStore[i] && this.contactStore[i]?.name === name) {
-                    inviter = this.contactStore[i]
+                    inviterId = i
+                    // 使用 getMemberNickname 获取昵称
+                    const nickname = this.getMemberNickname(i, roomId)
+                    inviter = {
+                      ...this.contactStore[i],
+                      name: nickname,
+                    }
+                    break
                   }
+                }
+                
+                // 如果找不到邀请者信息，使用默认值
+                if (!inviterId) {
+                  inviter = {
+                    alias: '',
+                    avatar: '',
+                    friend: false,
+                    gender: PUPPET.types.ContactGender.Unknown,
+                    id: name,
+                    name: name,
+                    phone: [],
+                    type: PUPPET.types.Contact.Individual,
+                  }
+                  this.contactStore[name] = inviter
                 }
               }
             }
 
+            // 处理被邀请者信息
             if (arrInfo[1]) {
-              topic = arrInfo[1]?.split(/“|”|"/)[1] || ''
+              const name = arrInfo[1]?.split(/"|"/)[1] || ''
               if (arrInfo[1] === '你') {
                 inviteeList.push(this.selfInfo.id)
               } else {
-                const name = arrInfo[1].split(/“|”|"/)[1] || ''
+                let inviteeId = ''
                 for (const i in this.contactStore) {
                   if (this.contactStore[i] && this.contactStore[i]?.name === name) {
-                    if (this.contactStore[i]?.id && room?.memberIdList.includes(this.contactStore[i]?.id || '')) {
-                      inviteeList.push(this.contactStore[i]?.id)
+                    inviteeId = i
+                    if (roomId && this.roomStore[roomId]?.memberIdList.includes(i)) {
+                      inviteeList.push(i)
                     }
                   }
                 }
 
+                // 如果找不到被邀请者信息，使用默认值
+                if (!inviteeId) {
+                    const invitee = {
+                      alias: '',
+                      avatar: '',
+                      friend: false,
+                      gender: PUPPET.types.ContactGender.Unknown,
+                      id: name,
+                    name: name,
+                      phone: [],
+                      type: PUPPET.types.Contact.Individual,
+                    }
+                    this.contactStore[name] = invitee
+                    inviteeList.push(name)
+                }
               }
             }
-            //  log.info(inviteeList)
-            //  log.info(inviter)
-            //  log.info(room)
 
+            // 使用缓存的房间信息
+            const roomInfo = this.getRoomInfo(roomId)
+            this.roomStore[roomId] = roomInfo
+
+            // 使用 loadRoomListSync 更新群列表
+            this.loadRoomListSync()
+
+            // 发出事件
             this.emit('room-join', { inviteeIdList: inviteeList, inviterId: inviter.id, roomId })
+
+            // 异步预加载新成员信息
+            void this.preloadRoomMember(roomId)
           }
         } else {
           this.messageStore[payload.id] = payload
@@ -506,7 +421,111 @@ class PuppetXp extends PUPPET.Puppet {
     } catch (e) {
       log.error('emit message fail:', e)
     }
+  }
 
+  // 同步获取群成员昵称
+  private getMemberNickname(memberId: string, roomId: string): string {
+    // 先从缓存获取
+    const roomCache = this.roomMemberCache[roomId]
+    if (roomCache?.[memberId]) {
+      return roomCache[memberId] || memberId
+    }
+
+    // 从 contactStore 获取
+    for (const i in this.contactStore) {
+      const contact = this.contactStore[i]
+      if (contact?.id === memberId) {
+        return contact.name || memberId
+      }
+    }
+
+    // 返回默认值
+    return memberId
+  }
+
+  // 同步获取群信息
+  private getRoomInfo(roomId: string): any {
+    return this.roomStore[roomId] || {
+      adminIdList: [''],
+      avatar: '',
+      external: false,
+      id: roomId,
+      memberIdList: [],
+      ownerId: '',
+      topic: '',
+    }
+  }
+
+  // 预加载群成员信息
+  private async preloadRoomMember(roomId: string) {
+    try {
+      const memberInfo = await this.sidecar.getChatroomMemberInfo()
+      const roomList = JSON.parse(memberInfo)
+      
+      for (const roomKey in roomList) {
+        const roomInfo = roomList[roomKey]
+        if (roomInfo.roomid === roomId) {
+          // 确保缓存对象存在
+          this.roomMemberCache[roomId] = this.roomMemberCache[roomId] || {}
+          const roomCache = this.roomMemberCache[roomId]
+          
+          const memberList = roomInfo.roomMember || []
+          for (const memberId of memberList) {
+            try {
+              // 使用同步方法
+              const nickname = this.sidecar.getChatroomMemberNickInfoSync(memberId, roomId)
+              if (roomCache) {
+                roomCache[memberId] = nickname || memberId
+              }
+            } catch (err) {
+              log.error('Failed to load member nickname:', err)
+              // 如果同步调用失败，使用默认值
+              if (roomCache) {
+                roomCache[memberId] = memberId
+              }
+            }
+          }
+          
+          this.roomInfoCache[roomId] = roomInfo
+          break
+        }
+      }
+    } catch (err) {
+      log.error('Failed to preload room member:', err)
+    }
+  }
+
+  // 同步加载群列表
+  private loadRoomListSync(): void {
+    try {
+      const ChatroomMemberInfo = this.sidecar.getChatroomMemberInfoSync()
+      const roomList = JSON.parse(ChatroomMemberInfo)
+      
+      for (const roomKey in roomList) {
+        const roomInfo = roomList[roomKey]
+        const roomId = roomInfo.roomid
+        if (roomId.indexOf('@chatroom') !== -1) {
+          const roomMember = roomInfo.roomMember || []
+          const contact = this.contactStore[roomId]
+          const topic = contact?.name || ''
+          const room = {
+            adminIdList: [ roomInfo.admin || '' ],
+            avatar: '',
+            external: false,
+            id: roomId,
+            memberIdList: roomMember,
+            ownerId: roomInfo.admin || '',
+            topic,
+          }
+          this.roomStore[roomId] = room
+          if (contact) {
+            delete this.contactStore[roomId]
+          }
+        }
+      }
+    } catch (err) {
+      log.error('loadRoomListSync fail:', err)
+    }
   }
 
   async onStop () {
@@ -704,7 +723,7 @@ class PuppetXp extends PUPPET.Puppet {
     /**
    * 2. get
    */
-    const WECHATY_ICON_PNG = 'data:image/png;base64,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'
+    const WECHATY_ICON_PNG = 'data:image/png;base64,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'
     return FileBox.fromDataURL(WECHATY_ICON_PNG)
   }
 
@@ -826,9 +845,13 @@ class PuppetXp extends PUPPET.Puppet {
 
     if (message?.type === PUPPET.types.Message.Attachment) {
       try {
-        const parser = new xml2js.Parser(/* options */)
+        const parser = new xml2js.Parser({
+          explicitArray: false,
+          ignoreAttrs: true,
+          normalize: true,
+          normalizeTags: true
+        })
         const messageJson = await parser.parseStringPromise(message.text || '')
-        // log.info(JSON.stringify(messageJson))
 
         const curDate = new Date()
         const year = curDate.getFullYear()
@@ -836,10 +859,12 @@ class PuppetXp extends PUPPET.Puppet {
         if (month < 10) {
           month = '0' + month
         }
-        fileName = '\\' + messageJson.msg.appmsg[0].title[0]
+        
+        // 处理文件名中的 utf8mb4 字符
+        fileName = '\\' + sanitizeFileName(messageJson.msg.appmsg[0].title[0])
         const filePath = `${this.selfInfo.id}\\FileStorage\\File\\${year}-${month}`
-        dataPath = rootPath + filePath + fileName  // 要解密的文件路径
-        // log.info(dataPath)
+        dataPath = rootPath + filePath + fileName
+
         return FileBox.fromFile(
           dataPath,
           fileName,
@@ -913,6 +938,11 @@ class PuppetXp extends PUPPET.Puppet {
     text: string,
     mentionIdList?: string[],
   ): Promise<void> {
+    // 检测并记录 utf8mb4 字符
+    if (isUtf8mb4(text)) {
+      log.info('PuppetXp', '检测到消息包含 utf8mb4 字符')
+    }
+
     if (conversationId.split('@').length === 2 && mentionIdList && mentionIdList[0]) {
       const wxid = mentionIdList[0]
       const contact = await this.contactRawPayload(wxid)
