@@ -275,20 +275,64 @@ class PuppetXp extends PUPPET.Puppet {
         try {
           xml2js.parseString(String(args[4]), { explicitArray: false, ignoreAttrs: true }, function (err: any, json: any) {
             log.verbose('PuppetXp', 'xml2json err:%s', err)
-            if (json.msgsource && json.msgsource.atuserlist === 'atuserlist') {
+            if (json?.msgsource?.atuserlist === 'atuserlist') {
               type = PUPPET.types.Message.GroupNote
             } else {
-        type = PUPPET.types.Message.Text
+              type = PUPPET.types.Message.Text
+            }
+          })
+        } catch (err) {
+          log.error('xml2js.parseString fail:', err)
+          type = PUPPET.types.Message.Text
+        }
+        break
+      case 3:
+        type = PUPPET.types.Message.Image
+        break
+      case 37:  // 好友请求消息
+        type = PUPPET.types.Message.Unknown
+        // 解析好友请求信息
+        try {
+          const friendInfo = {
+            type: 'friend_request',
+            id: talkerId,
+            hello: text,  // 打招呼内容
+          }
+          text = JSON.stringify(friendInfo)
+        } catch (err) {
+          log.error('Parse friend request fail:', err)
+        }
+        break
+      case 43:
+        type = PUPPET.types.Message.Video
+        break
+      case 47:
+        type = PUPPET.types.Message.Emoticon
+        break
+      case 49:
+        try {
+          xml2js.parseString(String(args[4]), { explicitArray: false, ignoreAttrs: true }, function (err: any, json: any) {
+            log.verbose('PuppetXp', 'xml2json err:%s', err)
+            if (json?.msg?.appmsg?.type === '5') {
+              type = PUPPET.types.Message.Url
+            } else if (json?.msg?.appmsg?.type === '33') {
+              type = PUPPET.types.Message.MiniProgram
+            } else if (json?.msg?.appmsg?.type === '6') {
+              type = PUPPET.types.Message.Attachment
+            } else {
+              type = PUPPET.types.Message.Text
             }
           })
         } catch (err) {
           log.error('xml2js.parseString fail:', err)
         }
         break
-      case 3:
-        type = PUPPET.types.Message.Image
+      case 10000:
+        type = PUPPET.types.Message.GroupNote
         break
-      // ... 其他消息类型处理 ...
+      default:
+        log.info('Unknown message type:', code)
+        break
     }
 
     // 处理发送者和接收者
@@ -306,6 +350,17 @@ class PuppetXp extends PUPPET.Puppet {
       talkerId = this.selfInfo.id
     }
 
+    // 获取完整的用户信息
+    const contact = this.contactStore[talkerId]
+    const userInfo = {
+      id: talkerId,
+      name: contact?.name || talkerId,
+      roomId: roomId || '',
+      alias: contact?.alias || '',
+      avatar: contact?.avatar || '',
+      type: contact?.type || PUPPET.types.Contact.Individual,
+    }
+
     // 创建消息载荷
     const payload: PUPPET.payloads.Message = {
       id: cuid(),
@@ -320,6 +375,39 @@ class PuppetXp extends PUPPET.Puppet {
 
     try {
       if (this.isLoggedIn) {
+        // 存储消息
+        this.messageStore[payload.id] = payload
+        
+        if (this.isReady) {
+          // 准备发送给大模型的数据
+          const modelData = {
+            message: {
+              ...payload,
+              type: PUPPET.types.Message[type] || 'Unknown',  // 使用字符串类型名
+            },
+            user: userInfo,
+            messageType: code,  // 原始消息类型码
+            rawText: text,  // 原始文本
+          }
+
+          // 发送消息事件
+          this.emit('message', { 
+            messageId: payload.id,
+            data: JSON.stringify(modelData),
+          })
+
+          // 记录调试信息
+          log.info('Message sent to model:', {
+            from: userInfo.name,
+            text: payload.text,
+            userId: userInfo.id,
+            roomId: userInfo.roomId,
+            type: PUPPET.types.Message[type],
+            messageType: code,
+          })
+        }
+
+        // 处理特殊消息类型
         if (code === 10000) {
           if (text.indexOf('加入了群聊') !== -1) {
             const inviteeList = []
@@ -411,15 +499,15 @@ class PuppetXp extends PUPPET.Puppet {
             // 异步预加载新成员信息
             void this.preloadRoomMember(roomId)
           }
-        } else {
-          this.messageStore[payload.id] = payload
-          if (this.isReady) {
-            this.emit('message', { messageId: payload.id })
-          }
         }
       }
     } catch (e) {
-      log.error('emit message fail:', e)
+      log.error('emit message fail:', e, {
+        userId: userInfo.id,
+        messageId: payload.id,
+        type: PUPPET.types.Message[type],
+        code,
+      })
     }
   }
 
