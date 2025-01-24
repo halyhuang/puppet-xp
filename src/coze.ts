@@ -3,6 +3,7 @@ import { ContactInterface, RoomInterface } from "wechaty/impls";
 import { ModelFactory } from './services/modelFactory.js';
 import { IModelService, IMessage } from './interfaces/model.js';
 import { Config } from "./config.js";
+import { log } from 'wechaty-puppet'
 
 enum MessageType {
   Unknown = 0,
@@ -293,15 +294,26 @@ export default class CozeBot {
     
     const text = await this.triggerCozeMessage(message, rawText, isPrivateChat);
     if (text.length > 0) {
-    // 获取发送者名称
-    const name = talker.name();
+      // 获取发送者名称
+      const name = talker.name();
 
-    // 根据是私聊还是群聊分别处理
-    if (isPrivateChat) {
-      return await this.onPrivateMessage(talker, text, name);
-    } else {
-      return await this.onGroupMessage(room, text, name);
+      // 根据是私聊还是群聊分别处理
+      if (isPrivateChat) {
+        return await this.onPrivateMessage(talker, text, name);
+      } else {
+        return await this.onGroupMessage(room, text, name);
+      }
     }
+
+    // 检查发送者ID是否存在
+    if (!talker.id) {
+      log.warn('CozeBot', 'Missing talker ID in message:', {
+        messageType: message.type(),
+        messageId: message.id,
+        text: rawText,
+        roomId: room?.id || '',
+        talkerName: talker.name(),
+      })
     }
   }
 }
