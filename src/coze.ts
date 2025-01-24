@@ -169,7 +169,7 @@ export default class CozeBot {
  // 增加对"恭喜发财"的触发条件
       else if (text.includes('恭喜发财')) { 
           triggered = true;
-          returnText = "介绍一下自己，你有什么能力";
+          returnText = "恭喜发财！介绍一下自己，你有什么能力";
       }
     }
     if (triggered) {
