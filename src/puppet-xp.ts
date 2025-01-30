@@ -261,7 +261,7 @@ class PuppetXp extends PUPPET.Puppet {
     this.emit('scan', this.scanEventData)
   }
 
-  private onHookRecvMsg (args: any) {
+  private async onHookRecvMsg (args: any) {
     let type = PUPPET.types.Message.Unknown
     let roomId = ''
     let toId = ''
@@ -338,9 +338,9 @@ class PuppetXp extends PUPPET.Puppet {
     // 处理发送者和接收者
     if (String(args[1]).split('@').length !== 2) {
       talkerId = String(args[1])
-      toId = this.currentUserId
+      toId = this.selfInfo.id
     } else {
-      talkerId = String(args[3])
+      talkerId = String(args[3]) || String(args[1].split('@')[0])  // 如果 args[3] 为空，使用群ID的前缀作为备选
       roomId = String(args[1])
     }
 
@@ -350,15 +350,53 @@ class PuppetXp extends PUPPET.Puppet {
       talkerId = this.selfInfo.id
     }
 
-    // 获取完整的用户信息
-    const contact = this.contactStore[talkerId]
+    // 确保 talkerId 不为空
+    if (!talkerId) {
+      log.warn('PuppetXp', 'Missing talkerId, using fallback:', {
+        args,
+        text,
+        roomId,
+      })
+      talkerId = this.selfInfo.id
+    }
+
+    // 获取或创建用户信息
+    let contact = this.contactStore[talkerId]
+    if (!contact) {
+      // 如果 contactStore 中没有，创建一个新的联系人信息
+      contact = {
+        alias: '',
+        avatar: '',
+        friend: true,
+        gender: PUPPET.types.ContactGender.Unknown,
+        id: talkerId,
+        name: talkerId,
+        phone: [],
+        type: PUPPET.types.Contact.Individual,
+      }
+      this.contactStore[talkerId] = contact
+
+      // 如果是群聊，尝试获取群成员信息
+      if (roomId) {
+        try {
+          const memberNickname = await this.sidecar.getChatroomMemberNickInfo(talkerId, roomId)
+          if (memberNickname) {
+            contact.name = memberNickname
+          }
+        } catch (e) {
+          log.warn('PuppetXp', 'Failed to get room member nickname:', e)
+        }
+      }
+    }
+
+    // 构建完整的用户信息
     const userInfo = {
       id: talkerId,
-      name: contact?.name || talkerId,
+      name: contact.name || talkerId,
       roomId: roomId || '',
-      alias: contact?.alias || '',
-      avatar: contact?.avatar || '',
-      type: contact?.type || PUPPET.types.Contact.Individual,
+      alias: contact.alias || '',
+      avatar: contact.avatar || '',
+      type: contact.type || PUPPET.types.Contact.Individual,
     }
 
     // 创建消息载荷
@@ -383,11 +421,21 @@ class PuppetXp extends PUPPET.Puppet {
           const modelData = {
             message: {
               ...payload,
-              type: PUPPET.types.Message[type] || 'Unknown',  // 使用字符串类型名
+              type: PUPPET.types.Message[type] || 'Unknown',
             },
-            user: userInfo,
-            messageType: code,  // 原始消息类型码
-            rawText: text,  // 原始文本
+            user: {
+              ...userInfo,
+              id: userInfo.id || talkerId,  // 确保 id 不为空
+              name: userInfo.name || talkerId,  // 确保 name 不为空
+              roomId: roomId || '',  // 确保 roomId 有值
+            },
+            messageType: code,
+            rawText: text,
+            context: {
+              isNewChat: !this.roomStore[roomId],
+              isFriendRequest: code === 37,
+              isRoomJoin: code === 10000,
+            }
           }
 
           // 发送消息事件

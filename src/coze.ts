@@ -195,7 +195,6 @@ export default class CozeBot {
   }
 
   // create messages for Coze API request
-  // TODO: store history chats for supporting context chat
   private createMessages(text: string): IMessage[] {
     const messages = [
       {
@@ -209,6 +208,11 @@ export default class CozeBot {
 
   // send question to Coze with OpenAI API and get answer
   async onChat(text: string, name: string): Promise<string> {
+    if (!name) {
+      log.warn('CozeBot', 'Missing user name, using default')
+      name = 'default_user'
+    }
+    
     // 创建消息格式
     const inputMessages = this.createMessages(text);
     try {
@@ -251,27 +255,41 @@ export default class CozeBot {
 
   // reply to private message
   private async onPrivateMessage(talker: ContactInterface, text: string, name: string) {
-    // get reply from Coze
     try {
+      // 确保用户标识符不为空
+      if (!name) {
+        name = talker.id || 'unknown_user';
+      }
+
       const chatgptReplyMessage = await this.onChat(text, name);
       if (!chatgptReplyMessage) {
         return;
       }
 
-      // send the Coze reply to chat
       await this.reply(talker, chatgptReplyMessage);
     } catch (e) {
-      console.log('no reply...');
+      log.error('CozeBot', 'Failed to handle private message:', e);
     }
   }
 
   // reply to group message
   private async onGroupMessage(room: RoomInterface, text: string, name: string) {
-    // get reply from Coze
-    const chatgptReplyMessage = await this.onChat(text, name);
-    // the whole reply consist of: original text and bot reply
-    const wholeReplyMessage = `${text}\n----------\n${chatgptReplyMessage}`;
-    await this.reply(room, wholeReplyMessage);
+    try {
+      // 确保用户标识符不为空
+      if (!name) {
+        name = room.id || 'unknown_room';
+      }
+
+      const chatgptReplyMessage = await this.onChat(text, name);
+      if (!chatgptReplyMessage) {
+        return;
+      }
+
+      const wholeReplyMessage = `${text}\n----------\n${chatgptReplyMessage}`;
+      await this.reply(room, wholeReplyMessage);
+    } catch (e) {
+      log.error('CozeBot', 'Failed to handle group message:', e);
+    }
   }
 
   // Check if the talker is in the blacklist
@@ -294,8 +312,31 @@ export default class CozeBot {
     
     const text = await this.triggerCozeMessage(message, rawText, isPrivateChat);
     if (text.length > 0) {
-      // 获取发送者名称
-      const name = talker.name();
+      // 获取发送者名称，确保不为空
+      let name = talker.name();
+      const talkerId = talker.id;
+
+      // 如果是群聊，尝试获取群内昵称
+      if (room) {
+        try {
+          const alias = await room.alias(talker);
+          if (alias) {
+            name = alias;
+          }
+        } catch (e) {
+          log.warn('CozeBot', 'Failed to get room alias:', e);
+        }
+      }
+
+      // 确保用户标识符不为空
+      if (!name || !talkerId) {
+        log.warn('CozeBot', 'Missing user info, using fallback', {
+          name,
+          talkerId,
+          roomId: room?.id,
+        });
+        name = talkerId || 'unknown_user';
+      }
 
       // 根据是私聊还是群聊分别处理
       if (isPrivateChat) {
