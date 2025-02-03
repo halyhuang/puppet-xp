@@ -10,13 +10,4 @@ modelConfig:
   type: "coze"
   apiKey: "pat_EH60rPVX6Iut2Vt3POtXanHrgqE7tXaGjhVLEeCttpha3XDK9nEcQbu3Io936bWR"
   model: "7455608956103655434"
- 
-# 可以保留 Coze 作为备用模型
-fallbackModel:
-  type: "qwen"  # 使用通义千问
-  apiKey: "sk-a2eb345c7f514044b7f4a9053d228467"  # 通义千问的 API Key
-  model: "qwen-turbo"  # 使用通义千问 Turbo 模型
-  apiEndpoint: "https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation"  # 通义千问的 API 地址
-  temperature: 0.7  # 可选：温度参数
-  maxTokens: 2000  # 可选：最大token数
 

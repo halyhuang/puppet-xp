@@ -13,12 +13,12 @@ export interface IChatResponse {
 
 // 模型配置接口
 export interface IModelConfig {
-  type: 'coze' | 'openai' | 'qwen';
+  type: 'coze';
   apiKey: string;
-  apiEndpoint?: string;
   model?: string;
   temperature?: number;
   maxTokens?: number;
+  apiEndpoint?: string;
 }
 
 // AI模型服务接口
