@@ -59,7 +59,7 @@ export default class CozeBot {
     this.botName = botName;
   }
 
-  // get trigger keyword in group chat: (@Name <keyword>)
+  // get trigger keyword in group chat: (@Name <keyword>)
   // in group chat, replace the special character after "@username" to space
   // to prevent cross-platfrom mention issue
   private get chatGroupTriggerKeyword(): string {
@@ -98,80 +98,40 @@ export default class CozeBot {
     return text
   }
 
-  // get clean message by removing reply separater and group mention characters
-  private async cleanMessage({
-    message,
-    rawText,
-    messageType,
-    isPrivateChat,
-  }: {
-    message: Message;
-    messageType: MessageType;
-    rawText: string;
-    isPrivateChat: boolean;
-  }): Promise<string> {
-    if (messageType === MessageType.Text) {
-      let text = rawText;
-      const item = rawText.split('- - - - - - - - - - - - - - -');
-      if (item.length > 1) {
-        text = item[item.length - 1] || '';
-      }
-      // 添加 utf8mb4 处理
-      text = this.handleUtf8mb4Text(text)
-      return text.slice(isPrivateChat ? this.cozeTriggerKeyword.length : this.chatGroupTriggerKeyword.length);
-    }
-
-    if (messageType === MessageType.Url) {
-      const urlLink = await message.toUrlLink();
-      const url = urlLink.payload.url;
-      console.log('文章链接：', url);
-      // 微信公众号分享长链接，包含 &amp; 编码
-      // http://mp.weixin.qq.com/s?__biz=MjM5NjM5MjQ4MQ==&amp;mid=2651752963&amp;idx=1&amp;sn=6d3cdc5fb1b6235e82eeab0080b40455&amp;chksm=bc73941ba5440bf4ae117aea9196763664c2074e45db306a1ca752fbed9da94a8434b142fff6&amp;mpshare=1&amp;scene=1&amp;srcid=1022Z2ezhg8wxfmHeRhtwsza&amp;sharer_shareinfo=b7e207bcaf654d5ba769ab3c6d6919e7&amp;sharer_shareinfo_first=b7e207bcaf654d5ba769ab3c6d6919e7#rd'
-      // 将 &amp; 替换为 &
-      const decodedUrl = url.replace(/&amp;/g, '&');
-      const parsedUrl = new URL(decodedUrl);
-      // 创建一个新的URLSearchParams对象，用于保存你想要保留的参数
-      const searchParams = new URLSearchParams(parsedUrl.searchParams);
-      const filteredParams = new URLSearchParams();
-      // 只保留 4 个关键参数
-      ['__biz', 'mid', 'idx', 'sn'].forEach((param) => {
-        const value = searchParams.get(param);
-        if (value) {
-          filteredParams.append(param, value);
-        }
-      });
-      const newUrl = `${parsedUrl.origin}${parsedUrl.pathname}?${filteredParams.toString()}`;
-      return newUrl;
-    }
-    return '';
-  }
-
   // check whether Coze bot can be triggered
-  private async triggerCozeMessage(message: Message, text: string, isPrivateChat: boolean = false): Promise<string> {
+  private async triggerCozeMessage(text: string, isPrivateChat: boolean = false): Promise<string> {
     let returnText = '';
     let triggered = false;
     if (isPrivateChat) {
       returnText = text;
     } else {
-      // due to un-unified @ lagging character, ignore it and just match:
-      //    1. the "@username" (mention)
-      //    2. trigger keyword
-      // start with @username
+      // 群聊中检查@触发
       const textMention = `@${this.botName}`;
       const startsWithMention = text.startsWith(textMention);
-      const textWithoutMention = text.slice(textMention.length + 1);
-      const followByTriggerKeyword = textWithoutMention.startsWith(this.cozeTriggerKeyword);
-      triggered = startsWithMention && !!textWithoutMention && followByTriggerKeyword;
-      // 清理消息内容
-      if (triggered) {
-          returnText = await this.cleanMessage({ message, messageType: message.type(), rawText: text, isPrivateChat });
+      const endsWithMention = text.endsWith(textMention);
+
+      if (startsWithMention) {
+        // 处理开头@的情况
+        const textWithoutMention = text.slice(textMention.length).trim();
+        if (textWithoutMention) {
+          triggered = true;
+          returnText = textWithoutMention;
+        }
+      } else if (endsWithMention) {
+        // 处理结尾@的情况
+        const textWithoutMention = text.slice(0, -textMention.length).trim();
+        if (textWithoutMention) {
+          triggered = true;
+          returnText = textWithoutMention;
+        }
       }
- // 增加对"恭喜发财"的触发条件
+      // 保留特殊关键词触发
       else if (text.includes('恭喜发财')) { 
           triggered = true;
           returnText = "恭喜发财！介绍一下自己，你有什么能力";
       }
     }
+    
     if (triggered) {
       console.log(`🎯 Coze triggered: ${returnText}`);
     }
@@ -310,7 +270,7 @@ export default class CozeBot {
       return;
     }
     
-    const text = await this.triggerCozeMessage(message, rawText, isPrivateChat);
+    const text = await this.triggerCozeMessage(rawText, isPrivateChat);
     if (text.length > 0) {
       // 获取发送者名称，确保不为空
       let name = talker.name();
