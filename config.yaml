@@ -8,7 +8,7 @@ botConfig:
 # AI模型配置
 modelConfig:
   type: "coze"
-  apiKey: "pat_yBI1CkYRwj9aFsrU68AKU4EHc4rDjSGsAwgtKm0G2ZXlKms8wXC8KhIIpDlHs0Ft"
+  apiKey: "pat_EH60rPVX6Iut2Vt3POtXanHrgqE7tXaGjhVLEeCttpha3XDK9nEcQbu3Io936bWR"
   model: "7455608956103655434"
  
 # 可以保留 Coze 作为备用模型
