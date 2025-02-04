@@ -2,6 +2,7 @@
 export interface IMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
+  content_type: 'text';
   name?: string;
 }
 

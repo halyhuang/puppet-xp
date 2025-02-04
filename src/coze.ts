@@ -1,9 +1,11 @@
-import { Message } from "wechaty";
+import type { Message } from "wechaty";
 import { ContactInterface, RoomInterface } from "wechaty/impls";
 import { ModelFactory } from './services/modelFactory.js';
-import { IModelService, IMessage } from './interfaces/model.js';
+import type { IModelService, IMessage } from './interfaces/model.js';
 import { Config } from "./config.js";
-import { log } from 'wechaty-puppet'
+import { log } from 'wechaty-puppet';
+import * as fs from 'fs';
+import * as path from 'path';
 
 enum MessageType {
   Unknown = 0,
@@ -24,6 +26,11 @@ enum MessageType {
   Video = 15, // Video(4), Video(43)
   Post = 16, // Moment, Channel, Tweet, etc
 }
+
+/** 
+ * CozeBot - Wechaty Coze Bot Implementation
+ * @description 基于 Wechaty 的 Coze 机器人实现
+ */
 export default class CozeBot {
   // chatbot name (WeChat account name)
   botName: string = '';
@@ -49,9 +56,41 @@ export default class CozeBot {
 
   private modelService: IModelService;
   
+  // 存储用户历史消息
+  private messageHistory: Map<string, IMessage[]> = new Map();
+  
+  // 历史消息的最大条数
+  private readonly MAX_HISTORY_LENGTH = 10;
+  
+  // 清理超时的历史记录（默认30分钟）
+  private readonly HISTORY_TIMEOUT = 30 * 60 * 1000;
+  
+  // 记录最后活动时间
+  private lastActiveTime: Map<string, number> = new Map();
+
+  // 历史消息文件存储目录
+  private readonly HISTORY_DIR = 'chat_history';
+  
+  // 文件同步间隔（5分钟）
+  private readonly SYNC_INTERVAL = 5 * 60 * 1000;
+
   constructor() {
     this.modelService = ModelFactory.createModel(Config.modelConfig);
     this.startTime = new Date();
+    
+    // 创建历史记录目录
+    if (!fs.existsSync(this.HISTORY_DIR)) {
+      fs.mkdirSync(this.HISTORY_DIR, { recursive: true });
+    }
+    
+    // 加载历史消息
+    this.loadHistoryFromFiles();
+    
+    // 定期清理过期的历史记录
+    setInterval(() => this.cleanExpiredHistory(), this.HISTORY_TIMEOUT);
+    
+    // 定期同步历史记录到文件
+    setInterval(() => this.syncHistoryToFiles(), this.SYNC_INTERVAL);
   }
 
   // set bot name during login stage
@@ -154,39 +193,156 @@ export default class CozeBot {
     );
   }
 
+  // 从文件加载历史消息
+  private loadHistoryFromFiles(): void {
+    try {
+      const files = fs.readdirSync(this.HISTORY_DIR);
+      for (const file of files) {
+        if (file.endsWith('.json')) {
+          const userId = file.replace('.json', '');
+          const filePath = path.join(this.HISTORY_DIR, file);
+          const content = fs.readFileSync(filePath, 'utf-8');
+          try {
+            const data = JSON.parse(content);
+            if (data.messages && Array.isArray(data.messages)) {
+              this.messageHistory.set(userId, data.messages);
+              this.lastActiveTime.set(userId, data.lastActiveTime || Date.now());
+            }
+          } catch (e) {
+            log.error('CozeBot', `Failed to parse history file ${file}:`, e);
+          }
+        }
+      }
+      log.info('CozeBot', `Loaded history for ${this.messageHistory.size} users`);
+    } catch (e) {
+      log.error('CozeBot', 'Failed to load history files:', e);
+    }
+  }
+
+  // 同步历史记录到文件
+  private syncHistoryToFiles(): void {
+    try {
+      for (const [userId, messages] of this.messageHistory.entries()) {
+        const lastActiveTime = this.lastActiveTime.get(userId) || Date.now();
+        const filePath = path.join(this.HISTORY_DIR, `${userId}.json`);
+        const data = {
+          userId,
+          messages,
+          lastActiveTime,
+          lastSync: Date.now()
+        };
+        fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+      }
+      log.info('CozeBot', `Synced history for ${this.messageHistory.size} users`);
+    } catch (e) {
+      log.error('CozeBot', 'Failed to sync history to files:', e);
+    }
+  }
+
+  // 清理过期的历史记录（同时清理文件）
+  private cleanExpiredHistory(): void {
+    const now = Date.now();
+    for (const [userId, lastTime] of this.lastActiveTime.entries()) {
+      if (now - lastTime > this.HISTORY_TIMEOUT) {
+        this.messageHistory.delete(userId);
+        this.lastActiveTime.delete(userId);
+        
+        // 删除过期的历史文件
+        try {
+          const filePath = path.join(this.HISTORY_DIR, `${userId}.json`);
+          if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+          }
+        } catch (e) {
+          log.error('CozeBot', `Failed to delete expired history file for ${userId}:`, e);
+        }
+      }
+    }
+  }
+
   // create messages for Coze API request
-  private createMessages(text: string): IMessage[] {
-    const messages = [
-      {
-        role: 'user' as const,
-        content: text,
-        content_type: 'text' as const,
-      },
-    ];
-    return messages;
+  private createMessages(text: string, userId: string): IMessage[] {
+    // 获取历史消息
+    const history = this.messageHistory.get(userId) || [];
+    
+    // 创建新消息
+    const newMessage: IMessage = {
+      role: 'user',
+      content: text,
+      content_type: 'text',
+    };
+
+    // 更新历史消息
+    const updatedHistory = [...history, newMessage];
+    
+    // 如果超过最大长度，只保留最近的消息
+    const trimmedHistory = updatedHistory.slice(-this.MAX_HISTORY_LENGTH);
+    
+    // 更新存储
+    this.messageHistory.set(userId, trimmedHistory);
+    this.lastActiveTime.set(userId, Date.now());
+    
+    return trimmedHistory;
+  }
+
+  // 添加AI回复到历史记录（同时触发文件同步）
+  private async addAssistantMessageToHistory(userId: string, content: string): Promise<void> {
+    const history = this.messageHistory.get(userId) || [];
+    const assistantMessage: IMessage = {
+      role: 'assistant',
+      content: content,
+      content_type: 'text',
+    };
+    
+    const updatedHistory = [...history, assistantMessage];
+    const trimmedHistory = updatedHistory.slice(-this.MAX_HISTORY_LENGTH);
+    this.messageHistory.set(userId, trimmedHistory);
+    this.lastActiveTime.set(userId, Date.now());
+    
+    // 立即同步到文件
+    try {
+      const filePath = path.join(this.HISTORY_DIR, `${userId}.json`);
+      const data = {
+        userId,
+        messages: trimmedHistory,
+        lastActiveTime: Date.now(),
+        lastSync: Date.now()
+      };
+      await fs.promises.writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8');
+    } catch (e) {
+      log.error('CozeBot', `Failed to sync history file for ${userId}:`, e);
+    }
   }
 
   // send question to Coze with OpenAI API and get answer
-  async onChat(text: string, name: string): Promise<string> {
-    if (!name) {
-      log.warn('CozeBot', 'Missing user name, using default')
-      name = 'default_user'
+  async onChat(text: string, userId: string): Promise<string> {
+    if (!userId) {
+      log.warn('CozeBot', 'Missing user id, using default')
+      userId = 'default_user'
     }
     
-    // 创建消息格式
-    const inputMessages = this.createMessages(text);
+    // 创建包含历史消息的请求
+    const inputMessages = this.createMessages(text, userId);
     try {
       // 调用主模型服务
-      const response = await this.modelService.chat(inputMessages, name);
+      const response = await this.modelService.chat(inputMessages, userId);
       console.log(`🤖️ AI says: ${response.message}`);
+      
+      // 将AI的回复添加到历史记录
+      if (response.message) {
+        await this.addAssistantMessageToHistory(userId, response.message);
+      }
+      
       return response.message || this.cozeErrorMessage;
     } catch (e) {
       console.error(`❌ ${e}`);
-      // 如果主模型失败且配置了备用模型，尝试使用备用模型
       if (Config.fallbackModel) {
         try {
           const fallbackService = ModelFactory.createModel(Config.fallbackModel);
-          const response = await fallbackService.chat(inputMessages, name);
+          const response = await fallbackService.chat(inputMessages, userId);
+          if (response.message) {
+            await this.addAssistantMessageToHistory(userId, response.message);
+          }
           return response.message || this.cozeErrorMessage;
         } catch (fallbackError) {
           console.error('Fallback model failed:', fallbackError);
@@ -214,14 +370,12 @@ export default class CozeBot {
   }
 
   // reply to private message
-  private async onPrivateMessage(talker: ContactInterface, text: string, name: string) {
+  private async onPrivateMessage(talker: ContactInterface, text: string) {
     try {
-      // 确保用户标识符不为空
-      if (!name) {
-        name = talker.id || 'unknown_user';
-      }
+      // 使用 talker.id 作为唯一标识
+      const userId = `private_${talker.id || talker.name() || 'unknown'}`;
 
-      const chatgptReplyMessage = await this.onChat(text, name);
+      const chatgptReplyMessage = await this.onChat(text, userId);
       if (!chatgptReplyMessage) {
         return;
       }
@@ -235,12 +389,10 @@ export default class CozeBot {
   // reply to group message
   private async onGroupMessage(room: RoomInterface, text: string, name: string) {
     try {
-      // 确保用户标识符不为空
-      if (!name) {
-        name = room.id || 'unknown_room';
-      }
+      // 使用 room.id + talker.id 作为唯一标识
+      const userId = `group_${room.id}_user_${name}`;
 
-      const chatgptReplyMessage = await this.onChat(text, name);
+      const chatgptReplyMessage = await this.onChat(text, userId);
       if (!chatgptReplyMessage) {
         return;
       }
@@ -258,15 +410,15 @@ export default class CozeBot {
   }
 
   // receive a message (main entry)
-  async onMessage(message: Message) {
-    const talker = message.talker();
-    const rawText = message.text();
-    const room = message.room();
+  async onMessage(msg: Message) {
+    const talker = msg.talker();
+    const rawText = msg.text();
+    const room = msg.room();
     const isPrivateChat = !room;
 
     // 检查黑名单和消息有效性
     if (this.isBlacklisted(talker.name()) || 
-        this.isNonsense(talker, message.type(), rawText)) {
+        this.isNonsense(talker, msg.type(), rawText)) {
       return;
     }
     
@@ -300,21 +452,21 @@ export default class CozeBot {
 
       // 根据是私聊还是群聊分别处理
       if (isPrivateChat) {
-        return await this.onPrivateMessage(talker, text, name);
-      } else {
-        return await this.onGroupMessage(room, text, name);
+        await this.onPrivateMessage(talker, text);
+      } else if (room) {
+        await this.onGroupMessage(room, text, name);
       }
     }
 
     // 检查发送者ID是否存在
     if (!talker.id) {
       log.warn('CozeBot', 'Missing talker ID in message:', {
-        messageType: message.type(),
-        messageId: message.id,
+        messageType: msg.type(),
+        messageId: msg.id,
         text: rawText,
         roomId: room?.id || '',
         talkerName: talker.name(),
-      })
+      });
     }
   }
 }
