@@ -68,3 +68,26 @@ cache/*
 # src/init-agent-script.ts
 examples/file/*
 examples/media/*
+
+# Chat history files
+chat_history/
+chat_history/*
+
+# Node modules
+node_modules/
+
+# Build output
+dist/
+lib/
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment files
+.env.*
+
+# OS files
+Thumbs.db

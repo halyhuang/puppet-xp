@@ -6,6 +6,7 @@ import { Config } from "./config.js";
 import { log } from 'wechaty-puppet';
 import * as fs from 'fs';
 import * as path from 'path';
+import { Wechaty } from 'wechaty';
 
 enum MessageType {
   Unknown = 0,
@@ -74,7 +75,16 @@ export default class CozeBot {
   // 文件同步间隔（5分钟）
   private readonly SYNC_INTERVAL = 5 * 60 * 1000;
 
-  constructor() {
+  // 定时任务的目标群聊ID
+  private readonly TARGET_ROOM_ID = '49030987852@chatroom';
+  
+  // 定时任务的消息内容
+  private readonly DAILY_MESSAGE = '深圳梧山，新的一天开始了';
+
+  // 保存定时器引用
+  private scheduleTimer: NodeJS.Timeout | null = null;
+
+  constructor(private readonly bot: Wechaty) {
     this.modelService = ModelFactory.createModel(Config.modelConfig);
     this.startTime = new Date();
     
@@ -91,6 +101,9 @@ export default class CozeBot {
     
     // 定期同步历史记录到文件
     setInterval(() => this.syncHistoryToFiles(), this.SYNC_INTERVAL);
+
+    // 启动定时任务
+    this.scheduleDailyMessage();
   }
 
   // set bot name during login stage
@@ -365,6 +378,8 @@ export default class CozeBot {
     messages.push(message);
     
     for (const msg of messages) {
+      // 添加延迟
+      await new Promise(resolve => setTimeout(resolve, 1000));
       await talker.say(msg);
     }
   }
@@ -389,6 +404,15 @@ export default class CozeBot {
   // reply to group message
   private async onGroupMessage(room: RoomInterface, text: string, name: string) {
     try {
+      // 添加更详细的room对象信息日志
+      const roomInfo = {
+        roomId: room.id,
+        isReady: room.isReady,
+        memberCount: (await room.memberAll()).length,
+        roomType: room.toString(),
+      };
+      log.info('CozeBot', '[正常群聊] Room详细信息: ' + JSON.stringify(roomInfo, null, 2));
+
       // 使用 room.id + talker.id 作为唯一标识
       const userId = `group_${room.id}_user_${name}`;
 
@@ -398,6 +422,12 @@ export default class CozeBot {
       }
 
       const wholeReplyMessage = `${text}\n----------\n${chatgptReplyMessage}`;
+      const sendInfo = {
+        roomId: room.id,
+        messageLength: wholeReplyMessage.length,
+        isReady: room.isReady,
+      };
+      log.info('CozeBot', '[正常群聊] 准备发送回复，Room状态: ' + JSON.stringify(sendInfo, null, 2));
       await this.reply(room, wholeReplyMessage);
     } catch (e) {
       log.error('CozeBot', 'Failed to handle group message:', e);
@@ -469,4 +499,121 @@ export default class CozeBot {
       });
     }
   }
+
+  // 设置定时任务
+  private scheduleDailyMessage(): void {
+    const scheduleMessage = async () => {
+      try {
+        log.info('CozeBot', `开始执行定时任务，当前时间: ${new Date().toLocaleString()}`);
+        
+        // 检查机器人是否在线
+        if (!this.bot.isLoggedIn) {
+          log.error('CozeBot', '机器人未登录，无法发送消息');
+          return;
+        }
+
+        const room = await this.bot.Room.find({ id: this.TARGET_ROOM_ID });
+        
+        // 添加更详细的定时任务room对象信息日志
+        if (room) {
+          const roomInfo = {
+            roomId: room.id,
+            isReady: room.isReady,
+            memberCount: (await room.memberAll()).length,
+            roomType: room.toString(),
+          };
+          log.info('CozeBot', '[定时任务] Room详细信息: ' + JSON.stringify(roomInfo, null, 2));
+        }
+
+        // 列出所有可用的群聊ID
+        const allRooms = await this.bot.Room.findAll();
+        log.info('CozeBot', `当前可用群聊数量: ${allRooms.length}`);
+        log.info('CozeBot', '所有可用群聊ID:');
+        for (const r of allRooms) {
+          log.info('CozeBot', `群ID: ${r.id}`);
+          if (r.id === this.TARGET_ROOM_ID) {
+            log.info('CozeBot', `✅ 找到目标群聊ID: ${r.id}`);
+          }
+        }
+
+        if (!room) {
+          log.error('CozeBot', `未找到目标群聊，ID: ${this.TARGET_ROOM_ID}`);
+          return;
+        }
+
+        // 使用与正常群聊相同的用户ID构造方式
+        const userId = `group_${this.TARGET_ROOM_ID}_schedule`;
+        
+        // 调用 Coze API 获取回复
+        const chatgptReplyMessage = await this.onChat(this.DAILY_MESSAGE, userId);
+        if (!chatgptReplyMessage) {
+          log.error('CozeBot', 'Coze API 返回空回复');
+          return;
+        }
+
+        // 构造完整回复消息
+        const wholeReplyMessage = `${this.DAILY_MESSAGE}\n----------\n${chatgptReplyMessage}`;
+        
+        // 再次检查room状态，添加更多信息
+        const sendInfo = {
+          roomId: room.id,
+          isReady: room.isReady,
+          messageLength: wholeReplyMessage.length,
+          roomType: room.toString(),
+          memberCount: (await room.memberAll()).length,
+        };
+        log.info('CozeBot', '[定时任务] 准备发送消息，Room状态: ' + JSON.stringify(sendInfo, null, 2));
+
+        // 使用与正常群聊相同的发送方式
+        await this.reply(room, wholeReplyMessage);
+        log.info('CozeBot', '定时消息发送成功');
+
+      } catch (e) {
+        log.error('CozeBot', '定时任务执行失败:', e);
+      }
+    };
+
+    // 计算到今天或明天早上8:00的毫秒数
+    const calculateNextTime = () => {
+      const now = new Date();
+      const next = new Date(now);
+      next.setHours(8, 0, 0, 0);  // 设置为8:00
+      
+      // 如果当前时间已经过了今天的8:00，就设置为明天的8:00
+      if (now >= next) {
+        next.setDate(next.getDate() + 1);
+      }
+      
+      return next.getTime() - now.getTime();
+    };
+
+    // 设置定时器
+    const scheduleNext = () => {
+      // 清除之前的定时器
+      if (this.scheduleTimer) {
+        clearTimeout(this.scheduleTimer);
+      }
+
+      const timeUntilNext = calculateNextTime();
+      this.scheduleTimer = setTimeout(() => {
+        scheduleMessage()  // 执行定时任务
+          .then(() => {
+            log.info('CozeBot', 'Daily message task completed, scheduling next one');
+            scheduleNext();  // 设置下一次执行
+          })
+          .catch(e => {
+            log.error('CozeBot', 'Error in daily message task:', e);
+            scheduleNext();  // 即使出错也设置下一次执行
+          });
+      }, timeUntilNext);
+
+      // 记录下一次执行的时间
+      const nextTime = new Date(Date.now() + timeUntilNext);
+      log.info('CozeBot', `Daily message scheduled, next message will be sent at: ${nextTime.toLocaleString()}`);
+    };
+
+    // 启动定时任务
+    scheduleNext();
+  }
 }
+

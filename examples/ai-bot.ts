@@ -19,7 +19,7 @@
 import { ScanStatus, WechatyBuilder } from 'wechaty'
 import CozeBot from '../src/coze.js'
 import QRCode from 'qrcode'
-import { PuppetXp } from '../src/mod.js'
+import { PuppetXp } from '../src/puppet-xp.js'
 
 // 用于存储最近消息的缓存，用于去重
 const messageCache = new Map<string, { timestamp: number }>();
@@ -64,13 +64,13 @@ setInterval(() => {
 const puppet = new PuppetXp()
 
 // Wechaty instance
-const wechatBot = WechatyBuilder.build({
-  name: 'wechat-coze-bot',
+const bot = WechatyBuilder.build({
+  name: 'wechat-bot',
   puppet
 });
 
 // CozeBot instance
-const cozeBot = new CozeBot();
+const cozeBot = new CozeBot(bot);
 
 /**
  *
@@ -95,7 +95,7 @@ async function retryOperation(operation: () => Promise<any>, maxRetries = 3, del
 
 async function main() {
       const welcomeBot = `
-    Puppet Version: ${wechatBot.version()}
+    Puppet Version: ${bot.version()}
 
     Please wait... I'm trying to login in...
 
@@ -105,7 +105,7 @@ async function main() {
   process.on('uncaughtException', async (error) => {
     console.error('Uncaught Exception:', error);
     try {
-      await wechatBot.stop();
+      await bot.stop();
       console.log('Bot stopped due to error, restarting in 5 seconds...');
       await new Promise(resolve => setTimeout(resolve, 5000));
       await main();
@@ -114,7 +114,7 @@ async function main() {
     }
   });
 
-  wechatBot
+  bot
     .on('scan', async (qrcode, status) => {
       if (status === ScanStatus.Waiting || status === ScanStatus.Timeout) {
         const url = `https://wechaty.js.org/qrcode/${encodeURIComponent(qrcode)}`;
@@ -168,7 +168,7 @@ async function main() {
     });
 
   try {
-    await wechatBot.start();
+    await bot.start();
   } catch (e) {
     console.error(`❌ Bot failed to start:`, e);
     console.log('Retrying in 5 seconds...');
