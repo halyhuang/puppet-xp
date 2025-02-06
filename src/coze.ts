@@ -87,6 +87,9 @@ export default class CozeBot {
   // 保存定时器引用
   private scheduleTimer: NodeJS.Timeout | null = null;
 
+  // 群聊消息保存目录
+  private readonly CHAT_LOGS_DIR = 'chat_logs';
+
   constructor(private readonly bot: Wechaty) {
     this.modelService = ModelFactory.createModel(Config.modelConfig);
     this.startTime = new Date();
@@ -94,6 +97,11 @@ export default class CozeBot {
     // 创建历史记录目录
     if (!fs.existsSync(this.HISTORY_DIR)) {
       fs.mkdirSync(this.HISTORY_DIR, { recursive: true });
+    }
+    
+    // 创建群聊消息保存目录
+    if (!fs.existsSync(this.CHAT_LOGS_DIR)) {
+      fs.mkdirSync(this.CHAT_LOGS_DIR, { recursive: true });
     }
     
     // 加载历史消息
@@ -467,6 +475,9 @@ export default class CozeBot {
       };
       log.info('CozeBot', '[正常群聊] 准备发送回复，Room状态: ' + JSON.stringify(sendInfo, null, 2));
       await this.reply(room, wholeReplyMessage);
+
+      // 保存AI回复到群聊记录
+      await this.saveGroupMessage(room, this.bot.currentUser, chatgptReplyMessage);
     } catch (e) {
       log.error('CozeBot', 'Failed to handle group message:', e);
     }
@@ -477,12 +488,67 @@ export default class CozeBot {
     return !!Config.blacklist && Config.blacklist.includes(talkerName);
   }
 
+  // 保存群聊消息到本地文件
+  private async saveGroupMessage(room: RoomInterface, talker: ContactInterface, message: string): Promise<void> {
+    try {
+      const now = new Date();
+      const dateStr = now.toISOString().split('T')[0];  // YYYY-MM-DD
+      const timestamp = now.toLocaleString();
+      
+      // 获取发送者信息
+      const talkerName = talker.name();
+      const roomAlias = await room.alias(talker) || talkerName;
+      
+      // 构造消息记录
+      const logEntry = {
+        timestamp,
+        roomId: room.id,
+        roomTopic: await room.topic(),
+        senderId: talker.id,
+        senderName: talkerName,
+        senderAlias: roomAlias,
+        message: message,
+      };
+
+      // 使用日期作为文件名
+      const fileName = `${dateStr}.json`;
+      const filePath = path.join(this.CHAT_LOGS_DIR, room.id, fileName);
+      
+      // 确保群聊目录存在
+      const roomDir = path.join(this.CHAT_LOGS_DIR, room.id);
+      if (!fs.existsSync(roomDir)) {
+        fs.mkdirSync(roomDir, { recursive: true });
+      }
+
+      // 读取现有记录或创建新数组
+      let logs = [];
+      if (fs.existsSync(filePath)) {
+        const content = fs.readFileSync(filePath, 'utf-8');
+        logs = JSON.parse(content);
+      }
+
+      // 添加新消息
+      logs.push(logEntry);
+
+      // 保存到文件
+      await fs.promises.writeFile(filePath, JSON.stringify(logs, null, 2), 'utf-8');
+      log.info('CozeBot', `群聊消息已保存: ${filePath}`);
+    } catch (e) {
+      log.error('CozeBot', '保存群聊消息失败:', e);
+    }
+  }
+
   // receive a message (main entry)
   async onMessage(msg: Message) {
     const talker = msg.talker();
     const rawText = msg.text();
     const room = msg.room();
     const isPrivateChat = !room;
+
+    // 如果是群聊消息，保存到本地文件
+    if (room && !this.isNonsense(talker, msg.type(), rawText)) {
+      await this.saveGroupMessage(room, talker, rawText);
+    }
 
     // 检查黑名单和消息有效性
     if (this.isBlacklisted(talker.name()) || 
@@ -582,6 +648,9 @@ export default class CozeBot {
         // 使用与正常群聊相同的用户ID构造方式
         const userId = `group_${this.TARGET_ROOM_ID}_schedule`;
         
+        // 保存定时消息到群聊记录
+        await this.saveGroupMessage(room, this.bot.currentUser, this.DAILY_MESSAGE);
+        
         // 调用 Coze API 获取回复
         const chatgptReplyMessage = await this.onChat(this.DAILY_MESSAGE, userId);
         if (!chatgptReplyMessage) {
@@ -604,6 +673,10 @@ export default class CozeBot {
 
         // 使用与正常群聊相同的发送方式
         await this.reply(room, wholeReplyMessage);
+        
+        // 保存AI回复到群聊记录
+        await this.saveGroupMessage(room, this.bot.currentUser, chatgptReplyMessage);
+        
         log.info('CozeBot', '定时消息发送成功');
 
       } catch (e) {

@@ -73,6 +73,10 @@ examples/media/*
 chat_history/
 chat_history/*
 
+# Chat logs files
+chat_logs/
+chat_logs/*
+
 # Node modules
 node_modules/
 
