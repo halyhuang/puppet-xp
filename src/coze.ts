@@ -78,6 +78,9 @@ export default class CozeBot {
   // 定时任务的目标群聊ID
   private readonly TARGET_ROOM_ID = '49030987852@chatroom';
   
+  // 定时任务的目标群聊ID
+  private readonly TARGET_ROOM_ID2 = '12458993921@chatroom';
+  
   // 定时任务的消息内容
   private readonly DAILY_MESSAGE = '深圳梧山，新的一天开始了';
 
@@ -104,6 +107,41 @@ export default class CozeBot {
 
     // 启动定时任务
     this.scheduleDailyMessage();
+
+    // 监听群成员加入事件
+    this.bot.on('room-join', async (room, inviteeList, _inviter) => {
+      try {
+        // 检查是否是目标群聊
+        if (room.id !== this.TARGET_ROOM_ID && room.id !== this.TARGET_ROOM_ID2) {
+          return;
+        }
+
+        // 获取新成员名称列表
+        const newMemberNames = await Promise.all(
+          inviteeList.map(async (contact) => {
+            const name = contact.name();
+            const alias = await room.alias(contact);
+            return alias || name;
+          })
+        );
+
+        // 构造欢迎消息
+        const welcomeMessage = `欢迎新成员 ${newMemberNames.join('、')} 加入群，发现生命之美！`;
+        log.info('CozeBot', `发送欢迎消息: ${welcomeMessage}`);
+
+        // 使用AI回复欢迎消息
+        const userId = `group_${this.TARGET_ROOM_ID}_welcome`;
+        const chatgptReplyMessage = await this.onChat(welcomeMessage, userId);
+        
+        if (chatgptReplyMessage) {
+          const wholeReplyMessage = `${welcomeMessage}\n----------\n${chatgptReplyMessage}`;
+          await this.reply(room, wholeReplyMessage);
+          log.info('CozeBot', '欢迎消息发送成功');
+        }
+      } catch (e) {
+        log.error('CozeBot', '处理新成员加入事件失败:', e);
+      }
+    });
   }
 
   // set bot name during login stage
