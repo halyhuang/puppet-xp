@@ -77,6 +77,16 @@ chat_history/*
 chat_logs/
 chat_logs/*
 
+# Media files
+media/
+media/*
+
+# OCR files
+*.traineddata
+ocr_data/
+test-ocr.*
+simple-ocr.*
+
 # Node modules
 node_modules/
 

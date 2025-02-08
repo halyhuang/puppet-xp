@@ -3,7 +3,9 @@
   "compilerOptions": {
     "outDir": "dist/esm",
     "importsNotUsedAsValues": "remove",
-    "preserveValueImports": false
+    "preserveValueImports": false,
+    "module": "ES2020",
+    "moduleResolution": "node"
   },
   "exclude": [
     "node_modules/",
@@ -21,6 +23,6 @@
     "src/*.ts",
     "src/**/*.ts",
     "src/**/*.d.ts",
-    "tests/**/*.spec.ts",
-  ],
+    "tests/**/*.spec.ts"
+  ]
 }

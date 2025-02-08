@@ -242,7 +242,7 @@ const moduleLoad = Module.load('WeChatWin.dll')
 /* -----------------base------------------------- */
 let retidPtr: any = null
 let retidStruct: any = null
-const initidStruct = ((str) => {
+const initidStruct = ((str: string) => {
 
   retidPtr = Memory.alloc(str.length * 2 + 1)
   retidPtr.writeUtf16String(str)
@@ -1093,10 +1093,10 @@ const delMemberFromChatRoom = (chat_room_id: string, wxids: string[]) => {
 // delMemberFromChatRoom('21341182572@chatroom', ['ledongmao'])
 
 // 未完成，添加群成员
-const addMemberToChatRoom = (chat_room_id, wxids) => {
+const addMemberToChatRoom = (chat_room_id: string, wxids: string[]) => {
   const base_addr = moduleBaseAddress; // 假设基础地址已经定义好
   const chat_room = Memory.allocUtf16String(chat_room_id);
-  const members = wxids.map(id => Memory.allocUtf16String(id));
+  const members = wxids.map((id: string) => Memory.allocUtf16String(id));
   const membersBuffer = Memory.alloc(Process.pointerSize * (members.length + 2));
   membersBuffer.writePointer(NULL);
   membersBuffer.add(Process.pointerSize).writePointer(membersBuffer.add(Process.pointerSize * 2));
@@ -1151,11 +1151,11 @@ const addMemberToChatRoom = (chat_room_id, wxids) => {
 // addMemberToChatRoom('21341182572@chatroom', ['ledongmao'])
 
 // 未完成，邀请群成员
-const inviteMemberToChatRoom = (chat_room_id, wxids) => {
+const inviteMemberToChatRoom = (chat_room_id: string, wxids: string[]) => {
   console.log('chat_room_id:', chat_room_id, 'wxids:', wxids);
   const base_addr = moduleBaseAddress; // 假设基础地址已经定义好
   const chat_room = Memory.allocUtf16String(chat_room_id);
-  const members = wxids.map(id => Memory.allocUtf16String(id));
+  const members = wxids.map((id: string) => Memory.allocUtf16String(id));
   const membersBuffer = Memory.alloc(Process.pointerSize * (members.length + 2));
   membersBuffer.writePointer(NULL);
   membersBuffer.add(Process.pointerSize).writePointer(membersBuffer.add(Process.pointerSize * 2));
@@ -1295,9 +1295,13 @@ const sendMsgNativeFunction = (talkerId: any, content: any) => {
 
 // 发送@消息
 let asmAtMsg: any = null
-let roomid_, msg_, wxid_, atid_
-let ecxBuffer
-const sendAtMsgNativeFunction = ((roomId, text, contactId, nickname) => {
+let roomid_: NativePointer
+let msg_: NativePointer
+let wxid_: NativePointer
+let atid_: NativePointer
+let ecxBuffer: NativePointer
+
+const sendAtMsgNativeFunction = ((roomId: string, text: string, contactId: string, nickname: string) => {
   // console.log('Function called with roomId:', roomId, 'text:', text, 'contactId:', contactId, 'nickname:', nickname)
   asmAtMsg = Memory.alloc(Process.pageSize)
   ecxBuffer = Memory.alloc(0x3b0)
@@ -1423,7 +1427,15 @@ const sendPicMsgNativeFunction = (contactId: string, path: string) => {
 }
 
 // 发送link消息——未完成
-function sendLinkMsgNativeFunction(wxid, title, url, thumburl, senderId, senderName, digest) {
+function sendLinkMsgNativeFunction(
+  wxid: string,
+  title: string,
+  url: string,
+  thumburl: string,
+  senderId: string,
+  senderName: string,
+  digest: string
+) {
   console.log('Function called with wxid:', wxid, 'title:', title, 'url:', url, 'thumburl:', thumburl, 'senderId:', senderId, 'senderName:', senderName, 'digest:', digest);
   let success = -1;
 

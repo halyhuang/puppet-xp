@@ -1,5 +1,4 @@
-import codeRootPkg from '../commonjs/code-root.js'
-const codeRoot = codeRootPkg['codeRoot']
+const codeRoot = process.cwd()
 
 export {
   codeRoot,

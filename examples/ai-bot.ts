@@ -17,7 +17,7 @@
  *
  */
 import { ScanStatus, WechatyBuilder } from 'wechaty'
-import CozeBot from '../src/coze.js'
+import { CozeBot } from '../src/coze.js'
 import QRCode from 'qrcode'
 import { PuppetXp } from '../src/puppet-xp.js'
 
@@ -178,7 +178,9 @@ async function main() {
 }
 
 // 启动主程序
-main().catch(console.error);
+main().catch(console.error)
+
+export { bot, cozeBot }
 
 /**
  *

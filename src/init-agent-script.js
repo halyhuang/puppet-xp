@@ -1123,7 +1123,10 @@ var sendMsgNativeFunction = function (talkerId, content) {
 };
 // 发送@消息
 var asmAtMsg = null;
-var roomid_, msg_, wxid_, atid_;
+var roomid_;
+var msg_;
+var wxid_;
+var atid_;
 var ecxBuffer;
 var sendAtMsgNativeFunction = (function (roomId, text, contactId, nickname) {
     // console.log('Function called with roomId:', roomId, 'text:', text, 'contactId:', contactId, 'nickname:', nickname)

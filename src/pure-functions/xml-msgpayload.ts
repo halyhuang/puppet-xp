@@ -10,7 +10,7 @@ import { log } from 'wechaty-puppet'
 //     FileBoxType,
 // } from 'file-box'
 
-async function XmlDecrypt (xml: string, msgType: PUPPET.types.Message): Promise<any> {
+export async function XmlDecrypt (xml: string, msgType: PUPPET.types.Message): Promise<any> {
   let res
   log.verbose('PuppetXp', 'text xml:(%s)', xml)
 
@@ -96,7 +96,4 @@ async function XmlDecrypt (xml: string, msgType: PUPPET.types.Message): Promise<
 
   }
   return res
-}
-export {
-  XmlDecrypt,
 }

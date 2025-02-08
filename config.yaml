@@ -1,13 +1,23 @@
-# 机器人配置
-botConfig:
-  triggerKeyword: ""
-  blacklist:
-    - "公众号名称"
-    - "微信名称"
-
 # AI模型配置
 modelConfig:
   type: "coze"
   apiKey: "pat_EH60rPVX6Iut2Vt3POtXanHrgqE7tXaGjhVLEeCttpha3XDK9nEcQbu3Io936bWR"
   model: "7455608956103655434"
+
+# 备用模型配置
+fallbackModel:
+  type: "coze"
+  apiKey: "sk-xxx"
+  model: "bot-xxx"
+
+# 机器人配置
+cozeTriggerKeyword: ""  # 触发关键词，留空表示无需关键词
+blacklist: []  # 黑名单用户列表
+
+# 需要发送欢迎语的群聊ID列表
+welcomeRoomIds:
+  - "49030987852@chatroom"  # 群聊1
+  - "12458993921@chatroom"  # 群聊2
+  - "48642793284@chatroom"  # 群聊3
+  - "3334100249@chatroom"   # 群聊4
 

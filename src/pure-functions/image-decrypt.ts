@@ -6,7 +6,7 @@ let xorCache:string|null = null
 
 const xorLen = 2
 
-function ImageDecrypt (dataPath: string, messageId: string) {
+export function ImageDecrypt (dataPath: string, messageId: string) {
   // 读取文件，获取到十六进制数据
   try {
     const data = fs.readFileSync(dataPath, 'hex')
@@ -216,7 +216,3 @@ const dataHead = [
     name: 'bmp',
   },
 ]
-
-export {
-  ImageDecrypt,
-}

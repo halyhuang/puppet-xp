@@ -56,7 +56,7 @@ async function wait (ms:number) {
 const userInfo = os.userInfo()
 const rootPath = `${userInfo.homedir}\\Documents\\WeChat Files\\`
 
-export type PuppetXpOptions = PUPPET.PuppetOptions
+type PuppetXpOptions = PUPPET.PuppetOptions
 
 // 检查文本是否包含 utf8mb4 字符
 function isUtf8mb4(text: string): boolean {
@@ -1428,4 +1428,4 @@ class PuppetXp extends PUPPET.Puppet {
 }
 
 export { PuppetXp }
-export default PuppetXp
+export type { PuppetXpOptions }

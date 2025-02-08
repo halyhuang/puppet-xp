@@ -4,8 +4,8 @@ import {
 
 import { packageJson }  from './package-json.js'
 import fs from 'fs';
-import { parse } from 'yaml';
-import { IConfig } from './interface';
+import * as yaml from 'js-yaml';
+import { IModelConfig } from './interfaces/model';
 
 const VERSION = packageJson.version || '0.0.0'
 
@@ -21,28 +21,33 @@ export {
   CHATIE_OFFICIAL_ACCOUNT_QRCODE,
 }
 
-let configFile: any = {};
-
-// git config
-if (fs.existsSync('./config.yaml')) {
-  // get configurations from 'config.yaml' first
-  const file = fs.readFileSync('./config.yaml', 'utf8');
-  configFile = parse(file);
+interface ConfigType {
+  modelConfig: IModelConfig;
+  fallbackModel?: IModelConfig;
+  blacklist?: string[];
+  cozeTriggerKeyword?: string;
+  welcomeRoomIds?: string[];
 }
 
-if (!configFile.modelConfig.apiKey && !configFile.modelConfig.model) {
-  throw new Error(
-    '⚠️ No API_KEY or MODEL found in env, please export to env or configure in config.yaml'
-  );
-}
+// 从 YAML 文件加载配置
+const loadConfig = (): ConfigType => {
+  try {
+    const configFile = fs.readFileSync('config.yaml', 'utf8');
+    return yaml.load(configFile) as ConfigType;
+  } catch (e) {
+    console.error('Failed to load config.yaml:', e);
+    throw e;
+  }
+};
 
-console.log('🚀 Configurations:', configFile);
+// 加载配置
+const config = loadConfig();
 
-export const Config: IConfig = {
-  apiKey: configFile.modelConfig.apiKey,
-  model: configFile.modelConfig.model,
-  cozeTriggerKeyword: configFile.botConfig.cozeTriggerKeyword || '',
-  blacklist: configFile.botConfig.blacklist || [],
-  modelConfig: configFile.modelConfig,
-  fallbackModel: configFile.fallbackModel
+// 导出配置
+export const Config = {
+  modelConfig: config.modelConfig,
+  fallbackModel: config.fallbackModel,
+  blacklist: config.blacklist || [],
+  cozeTriggerKeyword: config.cozeTriggerKeyword || '',
+  welcomeRoomIds: config.welcomeRoomIds || [],
 };
