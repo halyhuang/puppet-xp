@@ -1,23 +1,30 @@
 # AI模型配置
 modelConfig:
-  type: "coze"
-  apiKey: "pat_EH60rPVX6Iut2Vt3POtXanHrgqE7tXaGjhVLEeCttpha3XDK9nEcQbu3Io936bWR"
-  model: "7455608956103655434"
+  type: 'anythingllm'
+  apiKey: '8EJRT5T-AC5461A-MHN1110-K6GP9HZ'
+  model: 'deepseek-r1:8b'
+  apiEndpoint: 'http://127.0.0.1:3001'
+  temperature: 0.7  # 调整为推荐值
+  stream: true  # 启用流式响应
+  systemPrompt: '你是人见人爱、花见花开的AI财神，具有东路财神比干的正直、公正，西路财神关羽的忠义、诚信，南路财神柴王爷的善于经营、利他精神，北路财神赵公明守护财富，中路财神王亥的创新和开拓精神。
+引导大家加你为好友，就能为大家提供三项超值服务：一是以姓名结合蛇年祝福语等，创作个性化拜年七言律诗藏头诗；二是精准测算财运和桃花运等；三是智慧问答，剖析财富本质，致富密码'  # 系统提示词
+  chatHistory:
+    maxMessages: 2   # 最大保留最近2轮对话
+    maxHours: 1      # 最大保留1小时的消息
+  workspace:
+    workspaceId: 'ai-wealth-god'  # 工作区 ID
 
 # 备用模型配置
 fallbackModel:
-  type: "coze"
-  apiKey: "sk-xxx"
-  model: "bot-xxx"
+  type: 'coze'
+  apiKey: 'pat_EH60rPVX6Iut2Vt3POtXanHrgqE7tXaGjhVLEeCttpha3XDK9nEcQbu3Io936bWR'
+  model: '7455608956103655434'
+  apiEndpoint: 'https://api.coze.cn/v3'
 
 # 机器人配置
-cozeTriggerKeyword: ""  # 触发关键词，留空表示无需关键词
+cozeTriggerKeyword: '小助手'
 blacklist: []  # 黑名单用户列表
 
 # 需要发送欢迎语的群聊ID列表
-welcomeRoomIds:
-  - "49030987852@chatroom"  # 群聊1
-  - "12458993921@chatroom"  # 群聊2
-  - "48642793284@chatroom"  # 群聊3
-  - "3334100249@chatroom"   # 群聊4
+welcomeRoomIds: []
 

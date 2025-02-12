@@ -1,7 +1,7 @@
 import type { Message } from "wechaty";
 import { ContactInterface, RoomInterface } from "wechaty/impls";
 import { ModelFactory } from './services/modelFactory.js';
-import type { IModelService, IMessage } from './interfaces/model.js';
+import type { IModelService, IMessage, MessageRole, MessageList } from './interfaces/model.js';
 import { Config } from "./config.js";
 import { log } from 'wechaty-puppet';
 import * as fs from 'fs';
@@ -58,7 +58,7 @@ export class CozeBot {
   private modelService: IModelService;
   
   // 存储用户历史消息
-  private messageHistory: Map<string, IMessage[]> = new Map();
+  private messageHistory: Map<string, MessageList> = new Map();
   
   // 历史消息的最大条数
   private readonly MAX_HISTORY_LENGTH = 10;
@@ -334,40 +334,112 @@ export class CozeBot {
   // create messages for Coze API request
   private createMessages(text: string, userId: string): IMessage[] {
     // 获取历史消息
-    const history = this.messageHistory.get(userId) || [];
+    const history: IMessage[] = this.messageHistory.get(userId) || [];
     
     // 创建新消息
     const newMessage: IMessage = {
       role: 'user',
       content: text,
       content_type: 'text',
+      created: Date.now(),
+      createdAt: new Date().toLocaleString()
     };
 
-    // 更新历史消息
-    const updatedHistory = [...history, newMessage];
-    
-    // 如果超过最大长度，只保留最近的消息
-    const trimmedHistory = updatedHistory.slice(-this.MAX_HISTORY_LENGTH);
+    // 分离系统消息和对话消息
+    const systemMessages: IMessage[] = history.filter(msg => msg.role === 'system');
+    const conversationMessages: IMessage[] = history.filter(msg => msg.role !== 'system');
+
+    // 添加新的用户消息
+    conversationMessages.push(newMessage);
+
+    // 按时间戳排序对话消息
+    const sortedMessages = [...conversationMessages].sort((a, b) => a.created - b.created);
+
+    // 验证并修复对话顺序
+    const orderedMessages: IMessage[] = [];
+    let lastRole: MessageRole | null = null;
+
+    for (const msg of sortedMessages) {
+      // 如果当前消息与上一条消息角色相同，暂存到缓冲区
+      if (msg.role === lastRole) {
+        console.log('Warning: Found consecutive messages with same role:', msg.role);
+        continue;
+      }
+      orderedMessages.push(msg);
+      lastRole = msg.role;
+    }
+
+    // 如果最后一条不是用户消息，移除它（因为没有对应的回复）
+    const lastMessage = orderedMessages[orderedMessages.length - 1];
+    if (orderedMessages.length > 0 && lastMessage?.role !== 'user') {
+      orderedMessages.pop();
+    }
+
+    // 保留最近的消息对
+    const maxPairs = Math.floor(this.MAX_HISTORY_LENGTH / 2);
+    const trimmedMessages = orderedMessages.slice(-maxPairs * 2);
+
+    // 组合最终的消息数组：系统消息（如果有）+ 对话消息
+    const finalMessages: IMessage[] = [...systemMessages, ...trimmedMessages, newMessage];
     
     // 更新存储
-    this.messageHistory.set(userId, trimmedHistory);
+    this.messageHistory.set(userId, finalMessages);
     this.lastActiveTime.set(userId, Date.now());
     
-    return trimmedHistory;
+    return finalMessages;
   }
 
   // 添加AI回复到历史记录（同时触发文件同步）
   private async addAssistantMessageToHistory(userId: string, content: string): Promise<void> {
-    const history = this.messageHistory.get(userId) || [];
+    const history: IMessage[] = this.messageHistory.get(userId) || [];
+    
+    // 分离系统消息和对话消息
+    const systemMessages: IMessage[] = history.filter(msg => msg.role === 'system');
+    const conversationMessages: IMessage[] = history.filter(msg => msg.role !== 'system');
+    
+    // 检查最后一条消息是否为用户消息
+    const lastMessage = conversationMessages[conversationMessages.length - 1];
+    if (!lastMessage || lastMessage.role !== 'user') {
+      console.log('Warning: Cannot add assistant message - last message is not from user');
+      return;
+    }
+
     const assistantMessage: IMessage = {
       role: 'assistant',
       content: content,
       content_type: 'text',
+      created: Date.now(),
+      createdAt: new Date().toLocaleString()
     };
     
-    const updatedHistory = [...history, assistantMessage];
-    const trimmedHistory = updatedHistory.slice(-this.MAX_HISTORY_LENGTH);
-    this.messageHistory.set(userId, trimmedHistory);
+    // 添加助手消息
+    conversationMessages.push(assistantMessage);
+
+    // 按时间戳排序对话消息
+    const sortedMessages = [...conversationMessages].sort((a, b) => a.created - b.created);
+
+    // 验证并保持用户-助手消息的交替顺序
+    const orderedMessages: IMessage[] = [];
+    let lastRole: MessageRole | null = null;
+
+    for (const msg of sortedMessages) {
+      if (msg.role === lastRole) {
+        console.log('Warning: Found consecutive messages with same role:', msg.role);
+        continue;
+      }
+      orderedMessages.push(msg);
+      lastRole = msg.role;
+    }
+
+    // 保留最近的消息对
+    const maxPairs = Math.floor(this.MAX_HISTORY_LENGTH / 2);
+    const trimmedMessages = orderedMessages.slice(-maxPairs * 2);
+
+    // 组合最终的消息数组：系统消息（如果有）+ 对话消息
+    const finalMessages: IMessage[] = [...systemMessages, ...trimmedMessages];
+    
+    // 更新存储
+    this.messageHistory.set(userId, finalMessages);
     this.lastActiveTime.set(userId, Date.now());
     
     // 立即同步到文件
@@ -375,7 +447,7 @@ export class CozeBot {
       const filePath = path.join(this.HISTORY_DIR, `${userId}.json`);
       const data = {
         userId,
-        messages: trimmedHistory,
+        messages: finalMessages,
         lastActiveTime: Date.now(),
         lastSync: Date.now()
       };
