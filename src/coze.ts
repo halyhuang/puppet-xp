@@ -80,7 +80,7 @@ export class CozeBot {
   private readonly TARGET_ROOM_ID = '49030987852@chatroom';
   
   // 定时任务的消息内容
-  private readonly DAILY_MESSAGE = '深圳梧山，新的一天开始了';
+  private readonly DAILY_MESSAGE = '深圳梧桐山，新的一天开始了';
 
   // 保存定时器引用
   private scheduleTimer: NodeJS.Timeout | null = null;
