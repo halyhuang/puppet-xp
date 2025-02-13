@@ -221,28 +221,29 @@ export class CozeBot {
     } else {
       // 群聊中检查@触发
       const textMention = `@${this.botName}`;
-      const startsWithMention = text.startsWith(textMention);
-      const endsWithMention = text.endsWith(textMention);
-
-      if (startsWithMention) {
-        // 处理开头@的情况
-        const textWithoutMention = text.slice(textMention.length).trim();
-        if (textWithoutMention) {
+      
+      if (text.includes(textMention)) {
+        // 找到@的位置
+        const mentionIndex = text.indexOf(textMention);
+        const beforeMention = text.slice(0, mentionIndex).trim();
+        const afterMention = text.slice(mentionIndex + textMention.length).trim();
+        
+        // 组合@前后的文本
+        const combinedText = [beforeMention, afterMention].filter(Boolean).join(' ');
+        
+        if (combinedText) {
           triggered = true;
-          returnText = textWithoutMention;
-        }
-      } else if (endsWithMention) {
-        // 处理结尾@的情况
-        const textWithoutMention = text.slice(0, -textMention.length).trim();
-        if (textWithoutMention) {
-          triggered = true;
-          returnText = textWithoutMention;
+          returnText = combinedText;
+          console.log(`🎯 Coze triggered by mention at position ${mentionIndex}:`, {
+            original: text,
+            processed: returnText
+          });
         }
       }
       // 保留特殊关键词触发
       else if (text.includes('恭喜发财')) { 
-          triggered = true;
-          returnText = "恭喜发财！介绍一下自己，你有什么能力";
+        triggered = true;
+        returnText = "恭喜发财！介绍一下自己，你有什么能力";
       }
     }
     
