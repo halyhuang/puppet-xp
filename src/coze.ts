@@ -332,9 +332,9 @@ export class CozeBot {
   }
 
   // create messages for Coze API request
-  private createMessages(text: string, userId: string): IMessage[] {
+  private createMessages(text: string, userId: string): MessageList {
     // 获取历史消息
-    const history: IMessage[] = this.messageHistory.get(userId) || [];
+    const history: MessageList = this.messageHistory.get(userId) || [];
     
     // 创建新消息
     const newMessage: IMessage = {
@@ -346,21 +346,21 @@ export class CozeBot {
     };
 
     // 分离系统消息和对话消息
-    const systemMessages: IMessage[] = history.filter(msg => msg.role === 'system');
-    const conversationMessages: IMessage[] = history.filter(msg => msg.role !== 'system');
+    const systemMessages: MessageList = history.filter(msg => msg.role === 'system');
+    const conversationMessages: MessageList = history.filter(msg => msg.role !== 'system');
 
-    // 添加新的用户消息
+    // 添加新的用户消息到对话消息中
     conversationMessages.push(newMessage);
 
-    // 按时间戳排序对话消息
-    const sortedMessages = [...conversationMessages].sort((a, b) => a.created - b.created);
+    // 按时间戳排序所有对话消息（较新的在前）
+    const sortedMessages = [...conversationMessages].sort((a, b) => b.created - a.created);
 
     // 验证并修复对话顺序
-    const orderedMessages: IMessage[] = [];
+    const orderedMessages: MessageList = [];
     let lastRole: MessageRole | null = null;
 
     for (const msg of sortedMessages) {
-      // 如果当前消息与上一条消息角色相同，暂存到缓冲区
+      // 如果当前消息与上一条消息角色相同，跳过
       if (msg.role === lastRole) {
         console.log('Warning: Found consecutive messages with same role:', msg.role);
         continue;
@@ -369,18 +369,12 @@ export class CozeBot {
       lastRole = msg.role;
     }
 
-    // 如果最后一条不是用户消息，移除它（因为没有对应的回复）
-    const lastMessage = orderedMessages[orderedMessages.length - 1];
-    if (orderedMessages.length > 0 && lastMessage?.role !== 'user') {
-      orderedMessages.pop();
-    }
-
     // 保留最近的消息对
     const maxPairs = Math.floor(this.MAX_HISTORY_LENGTH / 2);
-    const trimmedMessages = orderedMessages.slice(-maxPairs * 2);
+    const trimmedMessages = orderedMessages.slice(0, maxPairs * 2);
 
-    // 组合最终的消息数组：系统消息（如果有）+ 对话消息
-    const finalMessages: IMessage[] = [...systemMessages, ...trimmedMessages, newMessage];
+    // 组合最终的消息数组：系统消息 + 按时间倒序的对话消息
+    const finalMessages: MessageList = [...systemMessages, ...trimmedMessages];
     
     // 更新存储
     this.messageHistory.set(userId, finalMessages);
@@ -391,14 +385,14 @@ export class CozeBot {
 
   // 添加AI回复到历史记录（同时触发文件同步）
   private async addAssistantMessageToHistory(userId: string, content: string): Promise<void> {
-    const history: IMessage[] = this.messageHistory.get(userId) || [];
+    const history: MessageList = this.messageHistory.get(userId) || [];
     
     // 分离系统消息和对话消息
-    const systemMessages: IMessage[] = history.filter(msg => msg.role === 'system');
-    const conversationMessages: IMessage[] = history.filter(msg => msg.role !== 'system');
+    const systemMessages: MessageList = history.filter(msg => msg.role === 'system');
+    const conversationMessages: MessageList = history.filter(msg => msg.role !== 'system');
     
     // 检查最后一条消息是否为用户消息
-    const lastMessage = conversationMessages[conversationMessages.length - 1];
+    const lastMessage = conversationMessages[0];  // 因为消息是倒序的，所以最新的消息在前面
     if (!lastMessage || lastMessage.role !== 'user') {
       console.log('Warning: Cannot add assistant message - last message is not from user');
       return;
@@ -415,11 +409,11 @@ export class CozeBot {
     // 添加助手消息
     conversationMessages.push(assistantMessage);
 
-    // 按时间戳排序对话消息
-    const sortedMessages = [...conversationMessages].sort((a, b) => a.created - b.created);
+    // 按时间戳排序所有对话消息（较新的在前）
+    const sortedMessages = [...conversationMessages].sort((a, b) => b.created - a.created);
 
     // 验证并保持用户-助手消息的交替顺序
-    const orderedMessages: IMessage[] = [];
+    const orderedMessages: MessageList = [];
     let lastRole: MessageRole | null = null;
 
     for (const msg of sortedMessages) {
@@ -433,10 +427,10 @@ export class CozeBot {
 
     // 保留最近的消息对
     const maxPairs = Math.floor(this.MAX_HISTORY_LENGTH / 2);
-    const trimmedMessages = orderedMessages.slice(-maxPairs * 2);
+    const trimmedMessages = orderedMessages.slice(0, maxPairs * 2);
 
-    // 组合最终的消息数组：系统消息（如果有）+ 对话消息
-    const finalMessages: IMessage[] = [...systemMessages, ...trimmedMessages];
+    // 组合最终的消息数组：系统消息 + 按时间倒序的对话消息
+    const finalMessages: MessageList = [...systemMessages, ...trimmedMessages];
     
     // 更新存储
     this.messageHistory.set(userId, finalMessages);

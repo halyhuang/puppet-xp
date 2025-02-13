@@ -1,10 +1,19 @@
 import axios from 'axios';
 import { IModelService, IMessage, IChatResponse, IModelConfig, IWorkspaceConfig } from '../../interfaces/model';
 
+// 消息历史接口
+interface IMessageHistory {
+  systemMessages: IMessage[];
+  conversationMessages: IMessage[];
+  lastActiveTime: number;
+}
+
 export class AnythingLLMService implements IModelService {
   private client;
   private config: IModelConfig;
   private workspace: IWorkspaceConfig;
+  private messageHistories: Map<string, IMessageHistory> = new Map();
+  private cachedSystemMessage: IMessage | null = null;
 
   constructor(config: IModelConfig) {
     this.config = config;
@@ -19,6 +28,17 @@ export class AnythingLLMService implements IModelService {
         'Accept-Charset': 'UTF-8'
       },
     });
+
+    // 初始化系统消息
+    if (this.config.systemPrompt) {
+      this.cachedSystemMessage = {
+        role: 'system',
+        content: this.config.systemPrompt,
+        content_type: 'text',
+        created: Date.now(),
+        createdAt: new Date().toLocaleString()
+      };
+    }
   }
 
   setWorkspace(workspaceId: string): void {
@@ -29,130 +49,108 @@ export class AnythingLLMService implements IModelService {
     this.workspace.conversationId = conversationId;
   }
 
+  // 清理过期消息
+  private cleanExpiredMessages(messages: IMessage[]): IMessage[] {
+    if (!this.config.chatHistory) return messages;
+    
+    const now = Date.now();
+    const maxAge = this.config.chatHistory.maxHours * 60 * 60 * 1000;
+    return messages.filter(msg => (now - (msg.created || now)) <= maxAge);
+  }
+
+  // 保留最新的N条消息
+  private keepRecentMessages(messages: IMessage[]): IMessage[] {
+    if (!this.config.chatHistory) return messages;
+    
+    const maxMessages = this.config.chatHistory.maxMessages * 2;
+    return messages.slice(0, maxMessages);
+  }
+
+  // 更新消息历史
+  private updateMessageHistory(userId: string, newMessage: IMessage): void {
+    const now = Date.now();
+    let history = this.messageHistories.get(userId);
+    
+    if (!history) {
+      history = {
+        systemMessages: [],
+        conversationMessages: [],
+        lastActiveTime: now
+      };
+    }
+
+    // 更新最后活动时间
+    history.lastActiveTime = now;
+
+    // 根据消息类型添加到对应数组
+    if (newMessage.role === 'system') {
+      history.systemMessages = [newMessage];
+    } else {
+      // 添加新消息到开头
+      history.conversationMessages.unshift(newMessage);
+      // 清理过期消息
+      history.conversationMessages = this.cleanExpiredMessages(history.conversationMessages);
+      // 保留最新消息
+      history.conversationMessages = this.keepRecentMessages(history.conversationMessages);
+    }
+
+    this.messageHistories.set(userId, history);
+  }
+
+  // 获取处理后的消息列表
+  private getProcessedMessages(userId: string): IMessage[] {
+    const history = this.messageHistories.get(userId);
+    if (!history) return [];
+
+    const messages = [...(history.systemMessages || []), ...history.conversationMessages];
+    
+    // 打印调试信息
+    console.log('\n=== Chat History Info ===');
+    console.log('System messages:', history.systemMessages.length);
+    console.log('Conversation messages:', history.conversationMessages.length);
+    console.log('Total messages:', messages.length);
+    console.log('Messages timeline:', messages.map(msg => ({
+      role: msg.role,
+      createdAt: msg.createdAt,
+      content: msg.content.substring(0, 50) + (msg.content.length > 50 ? '...' : '')
+    })));
+
+    return messages;
+  }
+
   async chat(messages: IMessage[], userId: string, streamHandler?: (chunk: string) => void): Promise<IChatResponse> {
     try {
       if (!messages || messages.length === 0) {
         throw new Error('Messages array cannot be empty');
       }
 
-      // 处理聊天历史
-      let filteredMessages = messages;
-      if (this.config.chatHistory) {
-        const now = Date.now();
-        const maxAge = this.config.chatHistory.maxHours * 60 * 60 * 1000; // 转换为毫秒
-        
-        // 确保所有消息都有created时间戳
-        const messagesWithTime = messages.map(msg => ({
-          ...msg,
-          created: msg.created || now,  // 使用毫秒时间戳
-          createdAt: new Date(msg.created || now).toLocaleString()  // 添加可读的时间字符串
-        }));
+      // 更新消息历史
+      messages.forEach(msg => this.updateMessageHistory(userId, msg));
 
-        // 分离系统消息和对话消息
-        const systemMessages = messagesWithTime.filter(msg => msg.role === 'system');
-        const conversationMessages = messagesWithTime.filter(msg => msg.role !== 'system');
+      // 获取处理后的消息列表
+      let processedMessages = this.getProcessedMessages(userId);
 
-        // 对话消息按created时间戳排序（较早的在前）
-        const sortedConversationMessages = conversationMessages.sort((a, b) => a.created - b.created);
-        
-        // 按时间过滤消息
-        const timeFilteredMessages = sortedConversationMessages
-          .filter(msg => (now - msg.created) <= maxAge);
-
-        // 获取最近的完整对话轮次
-        const maxRounds = this.config.chatHistory.maxMessages;
-        const conversationPairs: IMessage[] = [];
-        let currentPair: IMessage[] = [];
-
-        // 从较早的消息开始处理，确保对话的顺序正确
-        for (const msg of timeFilteredMessages) {
-          if (msg.role === 'user') {
-            if (currentPair.length === 2) {
-              // 如果已经有一个完整的对话对，保存它
-              conversationPairs.push(...currentPair);
-              currentPair = [];
-              
-              // 检查是否已达到最大轮次
-              if (conversationPairs.length >= maxRounds * 2) {
-                break;
-              }
-            }
-            currentPair = [msg];
-          } else if (msg.role === 'assistant' && currentPair.length === 1) {
-            currentPair.push(msg);
-          }
-        }
-
-        // 处理最后一个对话对
-        if (currentPair.length > 0) {
-          conversationPairs.push(...currentPair);
-        }
-
-        // 保留最近的 maxRounds 轮对话
-        const recentPairs = conversationPairs.slice(-maxRounds * 2);
-
-        // 组合最终的消息数组：系统消息（如果有）+ 最近的对话
-        filteredMessages = [...systemMessages, ...recentPairs];
-
-        // 打印调试信息
-        console.log('\n=== Chat History Processing ===');
-        console.log('System messages:', systemMessages.length);
-        console.log('Time filtered messages:', timeFilteredMessages.length);
-        console.log('Conversation pairs:', Math.floor(recentPairs.length / 2));
-        console.log('Final messages:', filteredMessages.length);
-        console.log('Messages timeline:', filteredMessages.map(msg => ({
-          role: msg.role,
-          createdAt: msg.createdAt,
-          content: msg.content.substring(0, 50) + (msg.content.length > 50 ? '...' : '')
-        })));
+      // 添加系统提示词（如果有）
+      if (this.cachedSystemMessage) {
+        processedMessages = [this.cachedSystemMessage, ...processedMessages];
       }
 
-      // 添加新的系统提示词（如果配置了的话）
-      let messagesWithSystem = filteredMessages;
-      if (this.config.systemPrompt) {
-        const now = Date.now();
-        const systemMessage: IMessage = {
-          role: 'system',
-          content: this.config.systemPrompt,
-          content_type: 'text',
-          created: now,
-          createdAt: new Date(now).toLocaleString()
-        };
-        
-        // 如果已经有系统消息，替换它；否则添加到开头
-        const hasSystemMessage = filteredMessages.some(msg => msg.role === 'system');
-        if (hasSystemMessage) {
-          messagesWithSystem = filteredMessages.map(msg => 
-            msg.role === 'system' ? systemMessage : msg
-          );
-        } else {
-          messagesWithSystem = [systemMessage, ...filteredMessages];
-        }
-      }
-
-      // 打印聊天历史信息
-      console.log('\n=== Chat History Info ===');
-      console.log('Original messages count:', messages.length);
-      console.log('Filtered messages count:', filteredMessages.length);
-      console.log('Final messages count:', messagesWithSystem.length);
-      
-      // 构建与Postman示例完全一致的请求体
+      // 构建请求体
       const requestBody = {
-        messages: messagesWithSystem,
-        userId: userId,  // 使用传入的 userId
-        model: this.workspace.workspaceId,  // 使用 workspace.workspaceId 作为 model
+        messages: processedMessages,
+        userId: userId,
+        model: this.workspace.workspaceId,
         llm: {
           provider: 'ollama',
           model: 'deepseek-r1:8b'
         },
-        stream: this.config.stream || true,  // 使用配置的 stream 参数，默认为 true
+        stream: this.config.stream || true,
         temperature: this.config.temperature || 0.7
       };
 
       // 打印请求参数
       console.log('\n=== AnythingLLM API Request ===');
       console.log('Endpoint:', this.client.defaults.baseURL + '/api/v1/openai/chat/completions');
-      console.log('Headers:', this.client.defaults.headers);
       console.log('Request Body:', JSON.stringify(requestBody, null, 2));
 
       // 使用OpenAI兼容的API端点
