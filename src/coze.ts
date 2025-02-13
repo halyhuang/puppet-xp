@@ -586,93 +586,103 @@ export class CozeBot {
     }
   }
 
-  // reply to private message
-  private async onPrivateMessage(talker: ContactInterface, text: string) {
+  // 基础消息保存方法
+  private async saveMessageBase(
+    savePath: string,
+    message: string | Message,
+    baseEntry: any
+  ): Promise<void> {
     try {
-      // 使用 talker.id 作为唯一标识
-      const userId = `private_${talker.id || talker.name() || 'unknown'}`;
+      // 构造消息记录
+      const logEntry = { ...baseEntry };
 
-      const chatgptReplyMessage = await this.onChat(text, userId);
-      if (!chatgptReplyMessage) {
+      // 处理不同类型的消息
+      if (typeof message === 'string') {
+        // 文本消息
+        logEntry.type = 'text';
+        logEntry.content = message;
+      } else {
+        // Message 对象(多媒体消息)
+        const msg = message as Message;
+        logEntry.type = MessageType[msg.type()];
+        logEntry.messageId = msg.id;
+        
+        // 保存文本内容
+        const text = msg.text();
+        if (text && text.length > 0) {
+          logEntry.text = text;
+        }
+
+        // 对于多媒体消息,保存文件并记录路径
+        const mediaPath = await this.saveMediaFile(msg, baseEntry.senderId);
+        if (mediaPath) {
+          logEntry.mediaPath = mediaPath;
+        }
+      }
+
+      // 确保目录存在
+      const dir = path.dirname(savePath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+
+      // 读取现有记录或创建新数组
+      let logs = [];
+      if (fs.existsSync(savePath)) {
+        const content = fs.readFileSync(savePath, 'utf-8');
+        logs = JSON.parse(content);
+      }
+
+      // 添加新消息
+      logs.push(logEntry);
+
+      // 保存到文件
+      await fs.promises.writeFile(savePath, JSON.stringify(logs, null, 2), 'utf-8');
+      log.info('CozeBot', `消息已保存: ${savePath}`);
+    } catch (e) {
+      log.error('CozeBot', '保存消息失败:', e);
+    }
+  }
+
+  // 保存私聊消息到本地文件
+  private async savePrivateMessage(contact: ContactInterface, message: string | Message): Promise<void> {
+    try {
+      // 检查必要的参数
+      if (!contact) {
+        log.error('CozeBot', '无效的联系人');
         return;
       }
 
-      await this.reply(talker, chatgptReplyMessage);
-    } catch (e) {
-      log.error('CozeBot', 'Failed to handle private message:', e);
-    }
-  }
-
-  // reply to group message
-  private async onGroupMessage(room: RoomInterface, text: string, name: string) {
-    try {
-      // 添加更详细的room对象信息日志
-      const roomInfo = {
-        roomId: room.id,
-        isReady: room.isReady,
-        memberCount: (await room.memberAll()).length,
-        roomType: room.toString(),
-      };
-      log.info('CozeBot', '[正常群聊] Room详细信息: ' + JSON.stringify(roomInfo, null, 2));
-
-      // 使用 room.id + talker.id 作为唯一标识
-      const userId = `group_${room.id}_user_${name}`;
-
-      const chatgptReplyMessage = await this.onChat(text, userId);
-      if (!chatgptReplyMessage) {
+      const contactId = contact.id;
+      if (!contactId) {
+        log.error('CozeBot', '无效的联系人ID');
         return;
       }
 
-      const wholeReplyMessage = `${text}\n----------\n${chatgptReplyMessage}`;
-      const sendInfo = {
-        roomId: room.id,
-        messageLength: wholeReplyMessage.length,
-        isReady: room.isReady,
+      const now = new Date();
+      const dateStr = this.formatDate(now);
+      const timestamp = now.toLocaleString();
+      
+      // 获取发送者信息
+      const contactName = contact.name();
+      
+      // 构造基础消息记录
+      const baseEntry = {
+        timestamp,
+        contactId,
+        contactName,
+        senderId: contact.id,
+        senderName: contactName,
       };
-      log.info('CozeBot', '[正常群聊] 准备发送回复，Room状态: ' + JSON.stringify(sendInfo, null, 2));
-      await this.reply(room, wholeReplyMessage);
 
-      // 保存AI回复到群聊记录
-      await this.saveGroupMessage(room, this.bot.currentUser, chatgptReplyMessage);
+      // 使用日期作为文件名
+      const fileName = `${dateStr}.json`;
+      const savePath = path.join(this.CHAT_LOGS_DIR, 'private', contactId, fileName);
+      
+      await this.saveMessageBase(savePath, message, baseEntry);
     } catch (e) {
-      log.error('CozeBot', 'Failed to handle group message:', e);
+      log.error('CozeBot', '保存私聊消息失败:', e);
     }
-  }
-
-  // Check if the talker is in the blacklist
-  private isBlacklisted(talkerName: string): boolean {
-    return !!Config.blacklist && Config.blacklist.includes(talkerName);
-  }
-
-  // 检查群聊ID是否有效
-  private isValidRoomId(roomId: string | undefined): roomId is string {
-    return typeof roomId === 'string' && roomId.length > 0;
-  }
-
-  // 根据消息类型获取默认文件扩展名
-  private getDefaultExtension(type: MessageType): string {
-    switch (type) {
-      case MessageType.Image:
-        return '.jpg';
-      case MessageType.Video:
-        return '.mp4';
-      case MessageType.Audio:
-        return '.mp3';
-      case MessageType.Emoticon:
-        return '.gif';
-      case MessageType.Attachment:
-        return '.dat';
-      default:
-        return '.bin';
-    }
-  }
-
-  // 格式化日期为 YYYY-MM-DD 格式
-  private formatDate(date: Date): string {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
   }
 
   // 保存群聊消息到本地文件
@@ -700,7 +710,7 @@ export class CozeBot {
       const roomAlias = await room.alias(talker) || talkerName;
       
       // 构造基础消息记录
-      const logEntry: any = {
+      const baseEntry = {
         timestamp,
         roomId,
         roomTopic: await room.topic(),
@@ -709,53 +719,11 @@ export class CozeBot {
         senderAlias: roomAlias,
       };
 
-      // 处理不同类型的消息
-      if (typeof message === 'string') {
-        // 文本消息
-        logEntry.type = 'text';
-        logEntry.content = message;
-      } else {
-        // Message 对象(多媒体消息)
-        const msg = message as Message;
-        logEntry.type = MessageType[msg.type()];
-        logEntry.messageId = msg.id;
-        
-        // 保存文本内容
-        const text = msg.text();
-        if (text && text.length > 0) {  // 确保文本内容存在且不为空
-          logEntry.text = text;
-        }
-
-        // 对于多媒体消息,保存文件并记录路径
-        const mediaPath = await this.saveMediaFile(msg, roomId);
-        if (mediaPath) {
-          logEntry.mediaPath = mediaPath;
-        }
-      }
-
       // 使用日期作为文件名
       const fileName = `${dateStr}.json`;
-      const filePath = path.join(this.CHAT_LOGS_DIR, roomId, fileName);
+      const savePath = path.join(this.CHAT_LOGS_DIR, roomId, fileName);
       
-      // 确保群聊目录存在
-      const roomDir = path.join(this.CHAT_LOGS_DIR, roomId);
-      if (!fs.existsSync(roomDir)) {
-        fs.mkdirSync(roomDir, { recursive: true });
-      }
-
-      // 读取现有记录或创建新数组
-      let logs = [];
-      if (fs.existsSync(filePath)) {
-        const content = fs.readFileSync(filePath, 'utf-8');
-        logs = JSON.parse(content);
-      }
-
-      // 添加新消息
-      logs.push(logEntry);
-
-      // 保存到文件
-      await fs.promises.writeFile(filePath, JSON.stringify(logs, null, 2), 'utf-8');
-      log.info('CozeBot', `群聊消息已保存: ${filePath}`);
+      await this.saveMessageBase(savePath, message, baseEntry);
     } catch (e) {
       log.error('CozeBot', '保存群聊消息失败:', e);
     }
@@ -962,6 +930,107 @@ export class CozeBot {
       }
     } catch (e) {
       log.error('CozeBot', '处理消息失败:', e);
+    }
+  }
+
+  // Check if the talker is in the blacklist
+  private isBlacklisted(talkerName: string): boolean {
+    return !!Config.blacklist && Config.blacklist.includes(talkerName);
+  }
+
+  // 检查群聊ID是否有效
+  private isValidRoomId(roomId: string | undefined): roomId is string {
+    return typeof roomId === 'string' && roomId.length > 0;
+  }
+
+  // 根据消息类型获取默认文件扩展名
+  private getDefaultExtension(type: MessageType): string {
+    switch (type) {
+      case MessageType.Image:
+        return '.jpg';
+      case MessageType.Video:
+        return '.mp4';
+      case MessageType.Audio:
+        return '.mp3';
+      case MessageType.Emoticon:
+        return '.gif';
+      case MessageType.Attachment:
+        return '.dat';
+      default:
+        return '.bin';
+    }
+  }
+
+  // 格式化日期为 YYYY-MM-DD 格式
+  private formatDate(date: Date): string {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  // 修改私聊消息处理方法，添加消息保存
+  private async onPrivateMessage(talker: ContactInterface, text: string) {
+    try {
+      // 使用 talker.id 作为唯一标识
+      const userId = `private_${talker.id || talker.name() || 'unknown'}`;
+
+      // 保存用户发送的消息
+      await this.savePrivateMessage(talker, text);
+
+      const chatgptReplyMessage = await this.onChat(text, userId);
+      if (!chatgptReplyMessage) {
+        return;
+      }
+
+      await this.reply(talker, chatgptReplyMessage);
+
+      // 保存AI的回复消息
+      await this.savePrivateMessage(this.bot.currentUser, chatgptReplyMessage);
+    } catch (e) {
+      log.error('CozeBot', 'Failed to handle private message:', e);
+    }
+  }
+
+  // reply to group message
+  private async onGroupMessage(room: RoomInterface, text: string, name: string) {
+    try {
+      // 添加更详细的room对象信息日志
+      const roomInfo = {
+        roomId: room.id,
+        isReady: room.isReady,
+        memberCount: (await room.memberAll()).length,
+        roomType: room.toString(),
+      };
+      log.info('CozeBot', '[正常群聊] Room详细信息: ' + JSON.stringify(roomInfo, null, 2));
+
+      // 使用 room.id + talker.id 作为唯一标识
+      const userId = `group_${room.id}_user_${name}`;
+
+      // 保存用户的原始消息
+      const talker = await room.member(name);
+      if (talker) {
+        await this.saveGroupMessage(room, talker, text);
+      }
+
+      const chatgptReplyMessage = await this.onChat(text, userId);
+      if (!chatgptReplyMessage) {
+        return;
+      }
+
+      const wholeReplyMessage = `${text}\n----------\n${chatgptReplyMessage}`;
+      const sendInfo = {
+        roomId: room.id,
+        messageLength: wholeReplyMessage.length,
+        isReady: room.isReady,
+      };
+      log.info('CozeBot', '[正常群聊] 准备发送回复，Room状态: ' + JSON.stringify(sendInfo, null, 2));
+      await this.reply(room, wholeReplyMessage);
+
+      // 保存AI回复到群聊记录
+      await this.saveGroupMessage(room, this.bot.currentUser, chatgptReplyMessage);
+    } catch (e) {
+      log.error('CozeBot', 'Failed to handle group message:', e);
     }
   }
 }
