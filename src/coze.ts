@@ -60,8 +60,9 @@ export class CozeBot {
   // 存储用户历史消息
   private messageHistory: Map<string, MessageList> = new Map();
   
-  // 历史消息的最大条数
-  private readonly MAX_HISTORY_LENGTH = 10;
+  // 历史消息的最大轮数
+  private readonly DEFAULT_ROUNDS = 3;  // 保留3轮对话
+  private readonly MESSAGES_PER_ROUND = 2;  // 每轮包含1条用户消息和1条助手消息
   
   // 清理超时的历史记录（默认30分钟）
   private readonly HISTORY_TIMEOUT = 30 * 60 * 1000;
@@ -109,8 +110,10 @@ export class CozeBot {
       fs.mkdirSync(this.MEDIA_DIR, { recursive: true });
     }
     
-    // 加载历史消息
-    this.loadHistoryFromFiles();
+    // 加载历史消息（异步操作）
+    this.loadHistoryFromFiles().catch(e => {
+      log.error('CozeBot', '加载历史消息失败:', e);
+    });
     
     // 定期清理过期的历史记录
     setInterval(() => this.cleanExpiredHistory(), this.HISTORY_TIMEOUT);
@@ -265,7 +268,7 @@ export class CozeBot {
   }
 
   // 从文件加载历史消息
-  private loadHistoryFromFiles(): void {
+  private async loadHistoryFromFiles(): Promise<void> {
     try {
       const files = fs.readdirSync(this.HISTORY_DIR);
       for (const file of files) {
@@ -276,23 +279,45 @@ export class CozeBot {
           try {
             const data = JSON.parse(content);
             if (data.messages && Array.isArray(data.messages)) {
-              this.messageHistory.set(userId, data.messages);
+              // 按时间戳排序确保消息顺序正确
+              const sortedMessages = data.messages.sort((a: IMessage, b: IMessage) => a.created - b.created);
+              
+              // 计算需要保留的消息数量
+              const maxMessages = this.DEFAULT_ROUNDS * this.MESSAGES_PER_ROUND;  // 3轮 * 2条/轮 = 6条消息
+              
+              // 如果消息数量超过最大轮数，只保留最近的消息
+              const recentMessages = sortedMessages.length > maxMessages 
+                ? sortedMessages.slice(-maxMessages) 
+                : sortedMessages;
+              
+              // 按时间顺序逐条添加消息到历史记录中
+              for (const message of recentMessages) {
+                if (message.role === 'user') {
+                  await this.addUserMessageToHistory(userId, message.content);
+                } else if (message.role === 'assistant') {
+                  await this.addAssistantMessageToHistory(userId, message.content);
+                }
+              }
+              
+              // 更新最后活动时间
               this.lastActiveTime.set(userId, data.lastActiveTime || Date.now());
+              log.info('CozeBot', `成功加载用户 ${userId} 的历史消息，保留了最近 ${recentMessages.length} 条消息`);
             }
           } catch (e) {
-            log.error('CozeBot', `Failed to parse history file ${file}:`, e);
+            log.error('CozeBot', `解析历史文件 ${file} 失败:`, e);
           }
         }
       }
-      log.info('CozeBot', `Loaded history for ${this.messageHistory.size} users`);
+      log.info('CozeBot', `共加载了 ${this.messageHistory.size} 个用户的历史记录`);
     } catch (e) {
-      log.error('CozeBot', 'Failed to load history files:', e);
+      log.error('CozeBot', '加载历史文件失败:', e);
     }
   }
 
   // 同步历史记录到文件
-  private syncHistoryToFiles(): void {
+  private async syncHistoryToFiles(): Promise<void> {
     try {
+      const writePromises = [];
       for (const [userId, messages] of this.messageHistory.entries()) {
         const lastActiveTime = this.lastActiveTime.get(userId) || Date.now();
         const filePath = path.join(this.HISTORY_DIR, `${userId}.json`);
@@ -302,15 +327,28 @@ export class CozeBot {
           lastActiveTime,
           lastSync: Date.now()
         };
-        fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+        
+        // 使用异步写入并收集所有 Promise
+        const writePromise = fs.promises.writeFile(
+          filePath, 
+          JSON.stringify(data, null, 2), 
+          'utf-8'
+        ).catch(error => {
+          log.error('CozeBot', `Failed to sync history file for ${userId}:`, error);
+        });
+        
+        writePromises.push(writePromise);
       }
+      
+      // 等待所有写入操作完成
+      await Promise.all(writePromises);
       log.info('CozeBot', `Synced history for ${this.messageHistory.size} users`);
     } catch (e) {
       log.error('CozeBot', 'Failed to sync history to files:', e);
     }
   }
 
-  // 清理过期的历史记录（同时清理文件）
+  // 清理过期的历史记录（同时清理文件和锁）
   private cleanExpiredHistory(): void {
     const now = Date.now();
     for (const [userId, lastTime] of this.lastActiveTime.entries()) {
@@ -331,124 +369,133 @@ export class CozeBot {
     }
   }
 
-  // create messages for Coze API request
-  private createMessages(text: string, userId: string): MessageList {
-    // 获取历史消息
-    const history: MessageList = this.messageHistory.get(userId) || [];
-    
-    // 创建新消息
-    const newMessage: IMessage = {
-      role: 'user',
-      content: text,
-      content_type: 'text',
-      created: Date.now(),
-      createdAt: new Date().toLocaleString()
-    };
-
-    // 分离系统消息和对话消息
-    const systemMessages: MessageList = history.filter(msg => msg.role === 'system');
-    const conversationMessages: MessageList = history.filter(msg => msg.role !== 'system');
-
-    // 添加新的用户消息到对话消息中
-    conversationMessages.push(newMessage);
-
-    // 按时间戳排序所有对话消息（较新的在前）
-    const sortedMessages = [...conversationMessages].sort((a, b) => b.created - a.created);
-
-    // 验证并修复对话顺序
-    const orderedMessages: MessageList = [];
-    let lastRole: MessageRole | null = null;
-
-    for (const msg of sortedMessages) {
-      // 如果当前消息与上一条消息角色相同，跳过
-      if (msg.role === lastRole) {
-        console.log('Warning: Found consecutive messages with same role:', msg.role);
-        continue;
-      }
-      orderedMessages.push(msg);
-      lastRole = msg.role;
-    }
-
-    // 保留最近的消息对
-    const maxPairs = Math.floor(this.MAX_HISTORY_LENGTH / 2);
-    const trimmedMessages = orderedMessages.slice(0, maxPairs * 2);
-
-    // 组合最终的消息数组：系统消息 + 按时间倒序的对话消息
-    const finalMessages: MessageList = [...systemMessages, ...trimmedMessages];
-    
-    // 更新存储
-    this.messageHistory.set(userId, finalMessages);
-    this.lastActiveTime.set(userId, Date.now());
-    
-    return finalMessages;
-  }
-
-  // 添加AI回复到历史记录（同时触发文件同步）
-  private async addAssistantMessageToHistory(userId: string, content: string): Promise<void> {
-    const history: MessageList = this.messageHistory.get(userId) || [];
-    
-    // 分离系统消息和对话消息
-    const systemMessages: MessageList = history.filter(msg => msg.role === 'system');
-    const conversationMessages: MessageList = history.filter(msg => msg.role !== 'system');
-    
-    // 检查最后一条消息是否为用户消息
-    const lastMessage = conversationMessages[0];  // 因为消息是倒序的，所以最新的消息在前面
-    if (!lastMessage || lastMessage.role !== 'user') {
-      console.log('Warning: Cannot add assistant message - last message is not from user');
-      return;
-    }
-
-    const assistantMessage: IMessage = {
-      role: 'assistant',
-      content: content,
-      content_type: 'text',
-      created: Date.now(),
-      createdAt: new Date().toLocaleString()
-    };
-    
-    // 添加助手消息
-    conversationMessages.push(assistantMessage);
-
-    // 按时间戳排序所有对话消息（较新的在前）
-    const sortedMessages = [...conversationMessages].sort((a, b) => b.created - a.created);
-
-    // 验证并保持用户-助手消息的交替顺序
-    const orderedMessages: MessageList = [];
-    let lastRole: MessageRole | null = null;
-
-    for (const msg of sortedMessages) {
-      if (msg.role === lastRole) {
-        console.log('Warning: Found consecutive messages with same role:', msg.role);
-        continue;
-      }
-      orderedMessages.push(msg);
-      lastRole = msg.role;
-    }
-
-    // 保留最近的消息对
-    const maxPairs = Math.floor(this.MAX_HISTORY_LENGTH / 2);
-    const trimmedMessages = orderedMessages.slice(0, maxPairs * 2);
-
-    // 组合最终的消息数组：系统消息 + 按时间倒序的对话消息
-    const finalMessages: MessageList = [...systemMessages, ...trimmedMessages];
-    
-    // 更新存储
-    this.messageHistory.set(userId, finalMessages);
-    this.lastActiveTime.set(userId, Date.now());
-    
-    // 立即同步到文件
+  // 同步单个用户的历史消息到文件
+  private async syncUserHistoryToFile(userId: string, messages: MessageList): Promise<void> {
     try {
       const filePath = path.join(this.HISTORY_DIR, `${userId}.json`);
       const data = {
         userId,
-        messages: finalMessages,
-        lastActiveTime: Date.now(),
+        messages,
+        lastActiveTime: this.lastActiveTime.get(userId),
         lastSync: Date.now()
       };
-      await fs.promises.writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8');
-    } catch (e) {
-      log.error('CozeBot', `Failed to sync history file for ${userId}:`, e);
+      
+      await fs.promises.writeFile(
+        filePath,
+        JSON.stringify(data, null, 2),
+        'utf-8'
+      );
+      log.info('CozeBot', `用户 ${userId} 的历史消息已同步到文件`);
+    } catch (error) {
+      log.error('CozeBot', `同步历史消息到文件失败: ${error}`);
     }
+  }
+
+  // 添加消息到历史记录并进行必要的处理
+  private async addMessageToHistory(userId: string, message: IMessage): Promise<MessageList> {
+    const messages = this.messageHistory.get(userId) || [];
+    messages.push(message);
+
+    // 按时间戳排序确保顺序正确
+    const sortedMessages = messages.sort((a, b) => a.created - b.created);
+    
+    // 计算需要保留的消息数量
+    const maxMessages = this.DEFAULT_ROUNDS * this.MESSAGES_PER_ROUND;  // 3轮 * 2条/轮 = 6条消息
+    
+    // 如果超出最大轮数，删除最早的1轮对话（2条消息）
+    if (sortedMessages.length > maxMessages) {
+      // 确保从头开始找到一个完整的对话轮次（user消息开始，assistant消息结束）
+      let removeIndex = -1;
+      for (let i = 0; i < sortedMessages.length - 1; i++) {
+        const currentMsg = sortedMessages[i];
+        const nextMsg = sortedMessages[i + 1];
+        if (currentMsg?.role === 'user' && nextMsg?.role === 'assistant') {
+          removeIndex = i;
+          break;
+        }
+      }
+      
+      if (removeIndex >= 0) {
+        // 删除一轮完整对话（2条消息）
+        sortedMessages.splice(removeIndex, this.MESSAGES_PER_ROUND);
+        log.info('CozeBot', `用户 ${userId} 的历史消息超出限制，已删除最早的一轮对话`);
+      } else {
+        log.warn('CozeBot', `用户 ${userId} 的历史消息中未找到完整的对话轮次`);
+      }
+    }
+    
+    // 验证消息列表的完整性
+    let isValid = true;
+    for (let i = 0; i < sortedMessages.length - 1; i += 2) {
+      const currentMsg = sortedMessages[i];
+      const nextMsg = sortedMessages[i + 1];
+      if (!currentMsg || !nextMsg || currentMsg.role !== 'user' || nextMsg.role !== 'assistant') {
+        isValid = false;
+        break;
+      }
+    }
+    
+    if (!isValid) {
+      log.warn('CozeBot', `用户 ${userId} 的历史消息顺序异常，可能影响对话质量`);
+    }
+    
+    this.messageHistory.set(userId, sortedMessages);
+    this.lastActiveTime.set(userId, Date.now());
+    
+    // 立即同步到文件
+    await this.syncUserHistoryToFile(userId, sortedMessages);
+    
+    return sortedMessages;
+  }
+
+  // 创建新消息对象
+  private createMessage(role: MessageRole, content: string): IMessage {
+    return {
+      role,
+      content,
+      content_type: 'text',
+      created: Date.now(),
+      createdAt: new Date().toLocaleString()
+    };
+  }
+
+  // 添加用户消息到历史记录
+  private async addUserMessageToHistory(userId: string, text: string): Promise<MessageList> {
+    const messages = this.messageHistory.get(userId) || [];
+    
+    // 创建新的用户消息
+    const userMessage = this.createMessage('user', text);
+    
+    // 检查最后一条消息是否为用户消息
+    const lastMessage = messages[messages.length - 1];
+    if (lastMessage && lastMessage.role === 'user') {
+      // 如果最后一条是用户消息，则覆盖它
+      messages[messages.length - 1] = userMessage;
+      this.messageHistory.set(userId, messages);
+      log.info('CozeBot', `覆盖了用户 ${userId} 的上一条用户消息`);
+      return messages;
+    }
+    
+    // 如果不是用户消息，则添加新消息到历史记录
+    return this.addMessageToHistory(userId, userMessage);
+  }
+
+  // 添加AI回复到历史记录
+  private async addAssistantMessageToHistory(userId: string, content: string): Promise<void> {
+    const messages = this.messageHistory.get(userId) || [];
+    
+    // 检查最后一条消息是否为用户消息
+    const lastMessage = messages[messages.length - 1];
+    if (!lastMessage || lastMessage.role !== 'user') {
+      log.warn('CozeBot', 'Cannot add assistant message - last message is not from user');
+      return;
+    }
+
+    // 创建助手消息
+    const assistantMessage = this.createMessage('assistant', content);
+    
+    // 添加到历史记录
+    await this.addMessageToHistory(userId, assistantMessage);
   }
 
   // send question to Coze with OpenAI API and get answer
@@ -459,7 +506,7 @@ export class CozeBot {
     }
     
     // 创建包含历史消息的请求
-    const inputMessages = this.createMessages(text, userId);
+    const inputMessages = await this.addUserMessageToHistory(userId, text);
     try {
       // 调用主模型服务
       const response = await this.modelService.chat(inputMessages, userId);
@@ -489,22 +536,53 @@ export class CozeBot {
     }
   }
 
+  // 分段发送消息到微信
+  private async sendSlicedMessages(talker: RoomInterface | ContactInterface, content: string): Promise<void> {
+    if (!content) return;
+    
+    const messages: Array<string> = [];
+    let remainingContent = content;
+    
+    // 按最大长度切分消息
+    while (remainingContent.length > this.SINGLE_MESSAGE_MAX_SIZE) {
+      messages.push(remainingContent.slice(0, this.SINGLE_MESSAGE_MAX_SIZE));
+      remainingContent = remainingContent.slice(this.SINGLE_MESSAGE_MAX_SIZE);
+    }
+    messages.push(remainingContent);
+    
+    // 发送每一段内容
+    for (const msg of messages) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      await talker.say(msg);
+    }
+  }
+
   // reply with the segmented messages from a single-long message
   private async reply(talker: RoomInterface | ContactInterface, message: string): Promise<void> {
     // 添加 utf8mb4 处理
-    message = this.handleUtf8mb4Text(message)
+    message = this.handleUtf8mb4Text(message);
     
-    const messages: Array<string> = [];
-    while (message.length > this.SINGLE_MESSAGE_MAX_SIZE) {
-      messages.push(message.slice(0, this.SINGLE_MESSAGE_MAX_SIZE));
-      message = message.slice(this.SINGLE_MESSAGE_MAX_SIZE);
-    }
-    messages.push(message);
-    
-    for (const msg of messages) {
-      // 添加延迟
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      await talker.say(msg);
+    // 检查是否包含 <think> 标签
+    const thinkMatch = message.match(/<think>.*?<\/think>/s);
+    if (thinkMatch) {
+      // 提取思考内容（保留<think>标签）和实际回复内容
+      const thinkContent = thinkMatch[0];  // 使用完整匹配，保留标签
+      const actualContent = message.replace(/<think>.*?<\/think>/s, '').trim();
+      
+      // 先发送思考内容
+      if (thinkContent) {
+        await this.sendSlicedMessages(talker, thinkContent);
+        // 添加短暂延迟，让两条消息有一定间隔
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      
+      // 再发送实际回复内容
+      if (actualContent) {
+        await this.sendSlicedMessages(talker, actualContent);
+      }
+    } else {
+      // 如果没有 <think> 标签，直接发送完整消息
+      await this.sendSlicedMessages(talker, message);
     }
   }
 
@@ -569,6 +647,24 @@ export class CozeBot {
   // 检查群聊ID是否有效
   private isValidRoomId(roomId: string | undefined): roomId is string {
     return typeof roomId === 'string' && roomId.length > 0;
+  }
+
+  // 根据消息类型获取默认文件扩展名
+  private getDefaultExtension(type: MessageType): string {
+    switch (type) {
+      case MessageType.Image:
+        return '.jpg';
+      case MessageType.Video:
+        return '.mp4';
+      case MessageType.Audio:
+        return '.mp3';
+      case MessageType.Emoticon:
+        return '.gif';
+      case MessageType.Attachment:
+        return '.dat';
+      default:
+        return '.bin';
+    }
   }
 
   // 格式化日期为 YYYY-MM-DD 格式
@@ -776,253 +872,96 @@ export class CozeBot {
       }
 
       // 如果是图片且有缩略图，保存缩略图
-      let thumbnailSaved = false;
       if (type === MessageType.Image && thumbnailFile && thumbnailFile.name) {
         try {
           const thumbnailPath = path.join(roomDir, `${baseFileName}_thumbnail${ext}`);
           await thumbnailFile.toFile(thumbnailPath, true);
           log.info('CozeBot', `缩略图已保存: ${thumbnailPath}`);
-          thumbnailSaved = true;
         } catch (thumbnailError) {
-          log.warn('CozeBot', '保存缩略图失败:', thumbnailError);
-          // 不影响主流程，继续处理
+          log.error('CozeBot', '保存缩略图失败:', thumbnailError);
+          return null;
         }
       }
 
-      // 返回相对路径(用于存储在日志中)
-      const relativePath = path.relative(process.cwd(), filePath);
-      
-      // 如果是图片，返回包含原图、缩略图路径的对象字符串
-      if (type === MessageType.Image) {
-        const thumbnailRelativePath = thumbnailSaved ? 
-          path.relative(process.cwd(), path.join(roomDir, `${baseFileName}_thumbnail${ext}`)) : 
-          null;
-        
-        return JSON.stringify({
-          original: relativePath,
-          thumbnail: thumbnailRelativePath
-        });
-      }
-
-      return relativePath;
+      return filePath;
     } catch (e) {
       log.error('CozeBot', '保存多媒体文件失败:', e);
       return null;
     }
   }
 
-  // 根据消息类型获取默认文件扩展名
-  private getDefaultExtension(type: MessageType): string {
-    switch (type) {
-      case MessageType.Image:
-        return '.jpg';
-      case MessageType.Video:
-        return '.mp4';
-      case MessageType.Audio:
-        return '.mp3';
-      case MessageType.Emoticon:
-        return '.gif';
-      case MessageType.Attachment:
-        return '.dat';
-      default:
-        return '.bin';
-    }
-  }
-
-  // receive a message (main entry)
-  async onMessage(msg: Message) {
-    const talker = msg.talker();
-    const rawText = msg.text();
-    const room = msg.room();
-    const isPrivateChat = !room;
-
-    // 如果是群聊消息，保存到本地文件
-    if (room && !this.isNonsense(talker, msg.type(), rawText)) {
-      // 检查群聊ID是否有效
-      const roomId = room.id;
-      if (this.isValidRoomId(roomId)) {
-        // 保存原始消息（包括图片等多媒体消息）
-        await this.saveGroupMessage(room, talker, msg);
-      } else {
-        log.error('CozeBot', '无效的群聊ID，跳过消息保存');
-      }
-    }
-
-    // 检查黑名单和消息有效性
-    if (this.isBlacklisted(talker.name()) || 
-        this.isNonsense(talker, msg.type(), rawText)) {
-      return;
-    }
-    
-    const text = await this.triggerCozeMessage(rawText, isPrivateChat);
-    if (text.length > 0) {
-      // 获取发送者名称，确保不为空
-      let name = talker.name();
-      const talkerId = talker.id;
-
-      // 如果是群聊，尝试获取群内昵称
-      if (room) {
-        try {
-          const alias = await room.alias(talker);
-          if (alias) {
-            name = alias;
-          }
-        } catch (e) {
-          log.warn('CozeBot', 'Failed to get room alias:', e);
-        }
-      }
-
-      // 确保用户标识符不为空
-      if (!name || !talkerId) {
-        log.warn('CozeBot', 'Missing user info, using fallback', {
-          name,
-          talkerId,
-          roomId: room?.id,
-        });
-        name = talkerId || 'unknown_user';
-      }
-
-      // 根据是私聊还是群聊分别处理
-      if (isPrivateChat) {
-        await this.onPrivateMessage(talker, text);
-      } else if (room) {
-        await this.onGroupMessage(room, text, name);
-      }
-    }
-
-    // 检查发送者ID是否存在
-    if (!talker.id) {
-      log.warn('CozeBot', 'Missing talker ID in message:', {
-        messageType: msg.type(),
-        messageId: msg.id,
-        text: rawText,
-        roomId: room?.id || '',
-        talkerName: talker.name(),
-      });
-    }
-  }
-
-  // 设置定时任务
+  // 定时发送消息的方法
   private scheduleDailyMessage(): void {
-    const scheduleMessage = async () => {
-      try {
-        log.info('CozeBot', `开始执行定时任务，当前时间: ${new Date().toLocaleString()}`);
-        
-        // 检查机器人是否在线
-        if (!this.bot.isLoggedIn) {
-          log.error('CozeBot', '机器人未登录，无法发送消息');
-          return;
-        }
+    // 清除现有定时器
+    if (this.scheduleTimer) {
+      clearTimeout(this.scheduleTimer);
+    }
 
-        const room = await this.bot.Room.find({ id: this.TARGET_ROOM_ID });
-        
-        // 添加更详细的定时任务room对象信息日志
-        if (room) {
-          const roomInfo = {
-            roomId: room.id,
-            isReady: room.isReady,
-            memberCount: (await room.memberAll()).length,
-            roomType: room.toString(),
-          };
-          log.info('CozeBot', '[定时任务] Room详细信息: ' + JSON.stringify(roomInfo, null, 2));
-        }
-
-        // 列出所有可用的群聊ID
-        const allRooms = await this.bot.Room.findAll();
-        log.info('CozeBot', `当前可用群聊数量: ${allRooms.length}`);
-        log.info('CozeBot', '所有可用群聊ID:');
-        for (const r of allRooms) {
-          log.info('CozeBot', `群ID: ${r.id}`);
-          if (r.id === this.TARGET_ROOM_ID) {
-            log.info('CozeBot', `✅ 找到目标群聊ID: ${r.id}`);
-          }
-        }
-
-        if (!room) {
-          log.error('CozeBot', `未找到目标群聊，ID: ${this.TARGET_ROOM_ID}`);
-          return;
-        }
-
-        // 使用与正常群聊相同的用户ID构造方式
-        const userId = `group_${this.TARGET_ROOM_ID}_schedule`;
-        
-        // 保存定时消息到群聊记录
-        await this.saveGroupMessage(room, this.bot.currentUser, this.DAILY_MESSAGE);
-        
-        // 调用 Coze API 获取回复
-        const chatgptReplyMessage = await this.onChat(this.DAILY_MESSAGE, userId);
-        if (!chatgptReplyMessage) {
-          log.error('CozeBot', 'Coze API 返回空回复');
-          return;
-        }
-
-        // 构造完整回复消息
-        const wholeReplyMessage = `${this.DAILY_MESSAGE}\n----------\n${chatgptReplyMessage}`;
-        
-        // 再次检查room状态，添加更多信息
-        const sendInfo = {
-          roomId: room.id,
-          isReady: room.isReady,
-          messageLength: wholeReplyMessage.length,
-          roomType: room.toString(),
-          memberCount: (await room.memberAll()).length,
-        };
-        log.info('CozeBot', '[定时任务] 准备发送消息，Room状态: ' + JSON.stringify(sendInfo, null, 2));
-
-        // 使用与正常群聊相同的发送方式
-        await this.reply(room, wholeReplyMessage);
-        
-        // 保存AI回复到群聊记录
-        await this.saveGroupMessage(room, this.bot.currentUser, chatgptReplyMessage);
-        
-        log.info('CozeBot', '定时消息发送成功');
-
-      } catch (e) {
-        log.error('CozeBot', '定时任务执行失败:', e);
-      }
-    };
-
-    // 计算到今天或明天早上8:00的毫秒数
-    const calculateNextTime = () => {
-      const now = new Date();
-      const next = new Date(now);
-      next.setHours(8, 0, 0, 0);  // 设置为8:00
-      
-      // 如果当前时间已经过了今天的8:00，就设置为明天的8:00
-      if (now >= next) {
-        next.setDate(next.getDate() + 1);
-      }
-      
-      return next.getTime() - now.getTime();
-    };
+    // 计算下一次发送时间（每天早上 8 点）
+    const now = new Date();
+    const nextTime = new Date(now);
+    nextTime.setHours(8, 0, 0, 0);
+    if (now >= nextTime) {
+      nextTime.setDate(nextTime.getDate() + 1);
+    }
 
     // 设置定时器
-    const scheduleNext = () => {
-      // 清除之前的定时器
-      if (this.scheduleTimer) {
-        clearTimeout(this.scheduleTimer);
+    const delay = nextTime.getTime() - now.getTime();
+    this.scheduleTimer = setTimeout(async () => {
+      try {
+        // 查找目标群聊
+        const room = await this.bot.Room.find({ id: this.TARGET_ROOM_ID });
+        if (room) {
+          await room.say(this.DAILY_MESSAGE);
+          log.info('CozeBot', '定时消息已发送');
+        }
+      } catch (e) {
+        log.error('CozeBot', '发送定时消息失败:', e);
+      } finally {
+        // 设置下一次定时
+        this.scheduleDailyMessage();
+      }
+    }, delay);
+
+    log.info('CozeBot', `定时消息将在 ${nextTime.toLocaleString()} 发送`);
+  }
+
+  // 处理消息的主方法
+  async onMessage(message: Message): Promise<void> {
+    try {
+      const talker = message.talker();
+      const messageType = message.type();
+      const text = message.text();
+
+      // 过滤无效消息
+      if (this.isNonsense(talker, messageType, text)) {
+        return;
       }
 
-      const timeUntilNext = calculateNextTime();
-      this.scheduleTimer = setTimeout(() => {
-        scheduleMessage()  // 执行定时任务
-          .then(() => {
-            log.info('CozeBot', 'Daily message task completed, scheduling next one');
-            scheduleNext();  // 设置下一次执行
-          })
-          .catch(e => {
-            log.error('CozeBot', 'Error in daily message task:', e);
-            scheduleNext();  // 即使出错也设置下一次执行
-          });
-      }, timeUntilNext);
+      // 检查是否在黑名单中
+      if (this.isBlacklisted(talker.name())) {
+        log.info('CozeBot', `用户 ${talker.name()} 在黑名单中，跳过处理`);
+        return;
+      }
 
-      // 记录下一次执行的时间
-      const nextTime = new Date(Date.now() + timeUntilNext);
-      log.info('CozeBot', `Daily message scheduled, next message will be sent at: ${nextTime.toLocaleString()}`);
-    };
-
-    // 启动定时任务
-    scheduleNext();
+      // 获取消息所在的群聊
+      const room = message.room();
+      
+      if (room) {
+        // 群聊消息
+        const triggerText = await this.triggerCozeMessage(text, false);
+        if (triggerText) {
+          await this.onGroupMessage(room, triggerText, talker.name());
+        }
+      } else {
+        // 私聊消息
+        const triggerText = await this.triggerCozeMessage(text, true);
+        if (triggerText) {
+          await this.onPrivateMessage(talker, triggerText);
+        }
+      }
+    } catch (e) {
+      log.error('CozeBot', '处理消息失败:', e);
+    }
   }
 }
-

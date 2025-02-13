@@ -5,7 +5,7 @@ import {
 import { packageJson }  from './package-json.js'
 import fs from 'fs';
 import * as yaml from 'js-yaml';
-import { IModelConfig } from './interfaces/model';
+import { IModelConfig } from './interfaces/model.js';
 
 const VERSION = packageJson.version || '0.0.0'
 

@@ -14,7 +14,50 @@ export interface IMessage {
   createdAt: string;  // 可读的时间字符串
 }
 
-// 消息数组类型
+// 消息队列（使用 double-ended-queue 并添加大小限制）
+import Deque from 'double-ended-queue';
+
+export class MessageDeque {
+  private deque: Deque<IMessage>;
+  private maxSize: number;
+
+  constructor(maxSize: number = 5) {
+    this.deque = new Deque<IMessage>();
+    this.maxSize = maxSize;
+  }
+
+  // 添加消息到队列尾部，自动控制大小
+  push(message: IMessage): void {
+    this.deque.push(message);
+    // 如果超出最大长度，从头部删除
+    while (this.deque.length > this.maxSize) {
+      this.deque.shift();
+    }
+  }
+
+  // 获取所有消息
+  toArray(): IMessage[] {
+    return this.deque.toArray();
+  }
+
+  // 获取队列长度
+  get length(): number {
+    return this.deque.length;
+  }
+}
+
+// 创建消息队列的工厂函数
+export function createMessageDeque(maxSize: number = 5): MessageDeque {
+  return new MessageDeque(maxSize);
+}
+
+// 创建API请求消息数组（包含系统消息）
+export function createRequestMessages(deque: MessageDeque, systemMessage: IMessage | null): IMessage[] {
+  const messages = deque.toArray();
+  return systemMessage ? [systemMessage, ...messages] : messages;
+}
+
+// 消息数组类型（为了保持兼容性）
 export type MessageList = IMessage[];
 
 // 对话消息对类型

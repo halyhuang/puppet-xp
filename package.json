@@ -84,7 +84,10 @@
     "wechaty-puppet": "^1.10.2"
   },
   "dependencies": {
+    "@types/double-ended-queue": "^2.1.7",
+    "async-mutex": "^0.5.0",
     "cuid": "^2.1.8",
+    "double-ended-queue": "^2.1.0-0",
     "frida": "^15.2.2",
     "openai": "^4.0.0",
     "qrcode": "^1.5.1",

@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { IModelService, IMessage, IChatResponse, IModelConfig } from '../../interfaces/model';
+import { IModelService, IMessage, IChatResponse, IModelConfig, createMessageDeque } from '../../interfaces/model.js';
 
 export class CozeService implements IModelService {
   private client;
@@ -19,11 +19,20 @@ export class CozeService implements IModelService {
 
   async chat(messages: IMessage[], userId: string): Promise<IChatResponse> {
     try {
+      // 计算最大消息数
+      const maxRounds = this.config.chatHistory?.maxMessages ?? 2;  // 默认2轮对话
+      const messagesPerRound = 2;  // 每轮包含用户消息和助手消息
+      const maxTotal = maxRounds * messagesPerRound + 1;  // 最后+1是最新的用户消息
+
+      // 创建消息队列并添加现有消息
+      const messageQueue = createMessageDeque(maxTotal);
+      messages.forEach(msg => messageQueue.push(msg));
+
       const response = await this.client.post('/chat', {
         bot_id: this.config.model,
         user_id: userId,
         stream: true,
-        additional_messages: messages.map(msg => ({
+        additional_messages: messageQueue.toArray().map(msg => ({
           role: msg.role,
           content: msg.content,
           content_type: 'text'

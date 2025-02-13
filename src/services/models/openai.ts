@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import { IModelService, IMessage, IChatResponse, IModelConfig } from '../../interfaces/model';
+import { IModelService, IMessage, IChatResponse, IModelConfig } from '../../interfaces/model.js';
 
 export class OpenAIService implements IModelService {
   private client: OpenAI;

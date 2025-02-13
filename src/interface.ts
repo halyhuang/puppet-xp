@@ -1,4 +1,4 @@
-import { IModelConfig } from './interfaces/model';
+import { IModelConfig } from './interfaces/model.js';
 
 export interface IConfig {
   apiKey: string;

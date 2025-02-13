@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { Config } from './config';
-import { IMessage } from './interfaces/model';
+import { IMessage } from './interfaces/model.js';
 
 /**
  * https://www.coze.cn/docs/developer_guides/coze_api_overview
