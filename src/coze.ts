@@ -860,7 +860,7 @@ export class CozeBot {
   }
 
   // 定时发送消息的方法
-  private scheduleDailyMessage(): void {
+  private async scheduleDailyMessage(): Promise<void> {
     // 清除现有定时器
     if (this.scheduleTimer) {
       clearTimeout(this.scheduleTimer);
@@ -881,8 +881,25 @@ export class CozeBot {
         // 查找目标群聊
         const room = await this.bot.Room.find({ id: this.TARGET_ROOM_ID });
         if (room) {
-          await room.say(this.DAILY_MESSAGE);
-          log.info('CozeBot', '定时消息已发送');
+          // 保存原始消息
+          await this.saveGroupMessage(room, this.bot.currentUser, this.DAILY_MESSAGE);
+
+          // 获取 AI 回复
+          const userId = `group_${this.TARGET_ROOM_ID}_daily`;
+          const aiReplyMessage = await this.onChat(this.DAILY_MESSAGE, userId);
+          
+          if (aiReplyMessage) {
+            // 组合完整消息
+            const wholeMessage = `${this.DAILY_MESSAGE}\n----------\n${aiReplyMessage}`;
+            
+            // 发送消息
+            await this.reply(room, wholeMessage);
+            
+            // 保存 AI 回复
+            await this.saveGroupMessage(room, this.bot.currentUser, aiReplyMessage);
+            
+            log.info('CozeBot', '定时消息及 AI 回复已发送');
+          }
         }
       } catch (e) {
         log.error('CozeBot', '发送定时消息失败:', e);
