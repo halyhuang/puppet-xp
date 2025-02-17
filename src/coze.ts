@@ -91,6 +91,8 @@ export class CozeBot {
   // 多媒体文件保存目录
   private readonly MEDIA_DIR = 'media';
 
+  private readonly WELCOME_MESSAGE_TEMPLATE = '欢迎新成员 {names} 加入群，发现生命之美！';
+
   constructor(private readonly bot: Wechaty) {
     this.modelService = ModelFactory.createModel(Config.modelConfig);
     this.startTime = new Date();
@@ -142,26 +144,9 @@ export class CozeBot {
           })
         );
 
-        // 构造欢迎消息
-        const welcomeMessage = `欢迎新成员 ${newMemberNames.join('、')} 加入群，发现生命之美！`;
-        log.info('CozeBot', `发送欢迎消息: ${welcomeMessage}`);
-
-        // 保存欢迎消息到群聊记录
-        await this.saveGroupMessage(room, this.bot.currentUser, welcomeMessage);
-
-        // 使用AI回复欢迎消息
-        const userId = `group_${room.id}_welcome`;
-        const chatgptReplyMessage = await this.onChat(welcomeMessage, userId);
+        // 使用 sendWelcomeMessage 方法发送欢迎消息
+        await this.sendWelcomeMessage(room, newMemberNames);
         
-        if (chatgptReplyMessage) {
-          const wholeReplyMessage = `${welcomeMessage}\n----------\n${chatgptReplyMessage}`;
-          await this.reply(room, wholeReplyMessage);
-          
-          // 保存AI回复到群聊记录
-          await this.saveGroupMessage(room, this.bot.currentUser, chatgptReplyMessage);
-          
-          log.info('CozeBot', '欢迎消息发送成功');
-        }
       } catch (e) {
         log.error('CozeBot', '处理新成员加入事件失败:', e);
       }
@@ -1050,5 +1035,35 @@ export class CozeBot {
     } catch (e) {
       log.error('CozeBot', 'Failed to handle group message:', e);
     }
+  }
+
+  private async sendWelcomeMessage(room: RoomInterface, names: string[]): Promise<void> {
+    const maxRetries = 3;
+    let retryCount = 0;
+    
+    while (retryCount < maxRetries) {
+      try {
+        const welcomeMessage = this.WELCOME_MESSAGE_TEMPLATE.replace('{names}', names.join('、'));
+        await this.saveGroupMessage(room, this.bot.currentUser, welcomeMessage);
+        
+        const userId = `group_${room.id}_welcome`;
+        const aiReplyMessage = await this.onChat(welcomeMessage, userId);
+        
+        if (aiReplyMessage) {
+          const wholeReplyMessage = `${welcomeMessage}\n----------\n${aiReplyMessage}`;
+          await this.reply(room, wholeReplyMessage);
+          await this.saveGroupMessage(room, this.bot.currentUser, aiReplyMessage);
+          log.info('CozeBot', '欢迎消息发送成功');
+          return;
+        }
+        
+      } catch (e) {
+        retryCount++;
+        log.error('CozeBot', `发送欢迎消息失败(第${retryCount}次尝试):`, e);
+        await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
+      }
+    }
+    
+    log.error('CozeBot', `发送欢迎消息失败，已达到最大重试次数`);
   }
 }

@@ -26,5 +26,5 @@ cozeTriggerKeyword: '小助手'
 blacklist: []  # 黑名单用户列表
 
 # 需要发送欢迎语的群聊ID列表
-welcomeRoomIds: []
+welcomeRoomIds: [3334100249@chatroom,12458993921@chatroom,49030987852@chatroom]
 
