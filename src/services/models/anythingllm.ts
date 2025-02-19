@@ -13,11 +13,11 @@ export class AnythingLLMService implements IModelService {
     this.workspace = config.workspace || { workspaceId: 'default' };
     this.llmConfig = {
       provider: 'ollama',  // 默认值
-      model: config.model || 'deepseek-r1:8b'  // 从配置中获取，如果没有则使用默认值
+      model: config.model || 'deepseek-r1:1.5b'  // 从配置中获取，如果没有则使用默认值
     };
     
     this.client = axios.create({
-      baseURL: (config.apiEndpoint || 'http://127.0.0.1:3001').replace('localhost', '127.0.0.1'),
+      baseURL: (config.apiEndpoint),
       timeout: 120000,
       headers: {
         'Authorization': `Bearer ${config.apiKey}`,
