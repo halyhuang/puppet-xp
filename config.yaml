@@ -1,7 +1,7 @@
 # AI模型配置
 modelConfig:
   type: 'anythingllm'
-  apiKey: '8EJRT5T-AC5461A-MHN1110-K6GP9HZ'
+  apiKey: 'VCD3AZF-6FFMJ6Y-PN5NHA8-E2EAP9X'
   model: 'deepseek-r1:1.5b'
   apiEndpoint: 'http://47.112.174.16'
   temperature: 0.7  # 调整为推荐值
