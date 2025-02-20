@@ -13,7 +13,7 @@ export class AnythingLLMService implements IModelService {
     this.workspace = config.workspace || { workspaceId: 'default' };
     this.llmConfig = {
       provider: 'ollama',  // 默认值
-      model: config.model || 'deepseek-r1:1.5b'  // 从配置中获取，如果没有则使用默认值
+      model: config.model || 'deepseek-r1:7b'  // 从配置中获取，如果没有则使用默认值
     };
     
     this.client = axios.create({

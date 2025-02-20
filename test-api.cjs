@@ -15,7 +15,7 @@ async function testAnythingLLM() {
           role: 'user',
           content: '你好，请介绍一下你自己'
         }],
-        model: 'deepseek-r1:1.5b',
+        model: 'deepseek-r1:7b',
         stream: true,
         temperature: 0.7
       },
