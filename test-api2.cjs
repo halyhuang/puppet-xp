@@ -1,11 +1,27 @@
 const axios = require('axios');
+const yaml = require('js-yaml');
+const fs = require('fs');
+
+// 从 YAML 文件加载配置
+const loadConfig = () => {
+  try {
+    const configFile = fs.readFileSync('config.yaml', 'utf8');
+    return yaml.load(configFile);
+  } catch (e) {
+    console.error('Failed to load config.yaml:', e);
+    throw e;
+  }
+};
+
+// 加载配置
+const config = loadConfig();
 
 async function testAnythingLLM() {
-  const config = {
+  const requestConfig = {
     method: 'post',
-    url: 'http://47.112.174.16/api/v1/openai/chat/completions',
+    url: `${config.modelConfig.apiEndpoint}/api/v1/openai/chat/completions`,
     headers: {
-      'Authorization': 'Bearer 8EJRT5T-AC5461A-MHN1110-K6GP9HZ',
+      'Authorization': `Bearer ${config.modelConfig.apiKey}`,
       'Content-Type': 'application/json',
       'Accept': 'text/event-stream'
     },
@@ -14,17 +30,17 @@ async function testAnythingLLM() {
         role: 'user',
         content: '你好，请介绍一下你自己'
       }],
-      model: 'deepseek-r1:1.5b',
+      model: config.modelConfig.model,
       stream: true,
-      temperature: 0.7
+      temperature: config.modelConfig.temperature
     },
     responseType: 'stream'
   };
 
-  console.log('发送请求配置：', JSON.stringify(config, null, 2));
+  console.log('发送请求配置：', JSON.stringify(requestConfig, null, 2));
 
   try {
-    const response = await axios(config);
+    const response = await axios(requestConfig);
 
     console.log('响应头：', response.headers);
     console.log('响应状态：', response.status);
