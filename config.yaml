@@ -1,7 +1,7 @@
 # AI模型配置
 modelConfig:
   type: 'anythingllm'
-  apiKey: 'VCD3AZF-6FFMJ6Y-PN5NHA8-E2EAP9X'
+  apiKey: 'FA7HZVQ-A7WMVRV-JPCT1VZ-WR3HJ9N'
   model: 'deepseek-r1:7b'
   apiEndpoint: 'http://47.112.174.16'
   temperature: 0.7  # 调整为推荐值
@@ -12,7 +12,7 @@ modelConfig:
     maxMessages: 2   # 最大保留最近2轮对话
     maxHours: 1      # 最大保留1小时的消息
   workspace:
-    workspaceId: 'ai-wealth-god'  # 工作区 ID
+    workspaceId: 'private-assistant'  # 工作区 ID
 
 # 备用模型配置
 fallbackModel:
