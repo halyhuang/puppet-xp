@@ -127,28 +127,128 @@ export class CozeBot {
     this.scheduleDailyMessage();
 
     // 监听群成员加入事件
-    this.bot.on('room-join', async (room, inviteeList, _inviter) => {
+    this.bot.on('room-join', async (room, inviteeList, inviter) => {
       try {
+        // 记录详细的事件信息
+        log.info('CozeBot', '收到room-join事件:', {
+          roomId: room?.id,
+          roomTopic: await room?.topic(),
+          inviteeCount: inviteeList?.length,
+          inviteeList: inviteeList?.map(c => ({
+            id: c?.id,
+            name: c?.name(),
+            isReady: c?.isReady(),
+          })),
+          inviter: inviter ? {
+            id: inviter.id,
+            name: inviter.name(),
+          } : 'null (可能是扫码入群)',
+        });
+
+        // 检查room是否有效
+        if (!room || !room.isReady) {
+          log.error('CozeBot', '无效的room对象:', {
+            room: room ? 'exists' : 'null',
+            isReady: room?.isReady,
+          });
+          return;
+        }
+
         // 检查是否是目标群聊
         if (!Config.welcomeRoomIds.includes(room.id)) {
           log.info('CozeBot', `群 ${room.id} 不在欢迎语目标群列表中，跳过欢迎`);
           return;
         }
 
+        // 检查inviteeList
+        if (!inviteeList || inviteeList.length === 0) {
+          log.error('CozeBot', '无效的inviteeList:', {
+            exists: !!inviteeList,
+            length: inviteeList?.length,
+          });
+          return;
+        }
+
         // 获取新成员名称列表
         const newMemberNames = await Promise.all(
-          inviteeList.map(async (contact) => {
-            const name = contact.name();
-            const alias = await room.alias(contact);
-            return alias || name;
+          inviteeList.map(async (contact, index) => {
+            try {
+              // 记录每个contact的详细信息
+              log.info('CozeBot', `处理第${index + 1}个新成员:`, {
+                contactId: contact?.id,
+                contactName: contact?.name(),
+                isReady: contact?.isReady(),
+              });
+
+              if (!contact || !contact.isReady) {
+                log.warn('CozeBot', `第${index + 1}个新成员的contact对象无效`);
+                return '新朋友';
+              }
+
+              // 尝试获取群昵称
+              let alias;
+              try {
+                alias = await room.alias(contact);
+                log.info('CozeBot', `获取群昵称结果: ${alias || 'null'}`);
+              } catch (e) {
+                log.warn('CozeBot', '获取群昵称失败:', e);
+              }
+              if (alias) return alias;
+
+              // 尝试获取备注名
+              let alias2;
+              try {
+                alias2 = await contact.alias();
+                log.info('CozeBot', `获取备注名结果: ${alias2 || 'null'}`);
+              } catch (e) {
+                log.warn('CozeBot', '获取备注名失败:', e);
+              }
+              if (alias2) return alias2;
+
+              // 获取微信名
+              const name = contact.name();
+              log.info('CozeBot', `使用微信名: ${name}`);
+              return name || '新朋友';
+            } catch (e) {
+              log.error('CozeBot', `获取成员${index + 1}的名称失败:`, e);
+              return '新朋友';
+            }
           })
         );
+
+        // 记录最终获取到的名称列表
+        log.info('CozeBot', '最终获取到的新成员名称列表:', newMemberNames);
+
+        // 记录入群信息
+        const inviterInfo = inviter ? 
+          `被 ${await this.getMemberDisplayName(room, inviter)} 邀请` : 
+          '通过扫码';
+        
+        const logMessage = `新成员 ${newMemberNames.join('、')} ${inviterInfo}加入群聊`;
+        log.info('CozeBot', logMessage);
+        
+        // 发送欢迎消息前记录状态
+        log.info('CozeBot', '准备发送欢迎消息:', {
+          roomId: room.id,
+          roomTopic: await room.topic(),
+          memberCount: (await room.memberAll()).length,
+          newMembers: newMemberNames,
+        });
 
         // 使用 sendWelcomeMessage 方法发送欢迎消息
         await this.sendWelcomeMessage(room, newMemberNames);
         
       } catch (e) {
         log.error('CozeBot', '处理新成员加入事件失败:', e);
+        // 记录更详细的错误信息
+        if (e instanceof Error) {
+          log.error('CozeBot', {
+            error: e.message,
+            stack: e.stack,
+            roomId: room?.id,
+            inviteeCount: inviteeList?.length,
+          });
+        }
       }
     });
   }
@@ -672,46 +772,28 @@ export class CozeBot {
   }
 
   // 保存群聊消息到本地文件
-  private async saveGroupMessage(room: RoomInterface, talker: ContactInterface, message: string | Message): Promise<void> {
+  private async saveGroupMessage(room: RoomInterface, talker: ContactInterface | null, message: string | Message): Promise<void> {
     try {
-      // 检查必要的参数
-      if (!room || !talker) {
-        log.error('CozeBot', '无效的房间或发送者');
-        return;
-      }
-
-      const roomId = room.id;
-      // 确保 roomId 存在且为字符串类型
-      if (!this.isValidRoomId(roomId)) {
-        log.error('CozeBot', '无效的群聊ID');
-        return;
-      }
-
-      const now = new Date();
-      const dateStr = this.formatDate(now);
-      const timestamp = now.toLocaleString();
-      
-      // 获取发送者信息
-      const talkerName = talker.name();
-      const roomAlias = await room.alias(talker) || talkerName;
+      // 如果 talker 为 null，使用机器人自身作为发送者
+      const sender = talker || this.bot.currentUser;
       
       // 构造基础消息记录
       const baseEntry = {
-        timestamp,
-        roomId,
+        timestamp: new Date().toLocaleString(),
+        roomId: room.id,
         roomTopic: await room.topic(),
-        senderId: talker.id,
-        senderName: talkerName,
-        senderAlias: roomAlias,
+        senderId: sender.id,
+        senderName: sender.name(),
       };
 
       // 使用日期作为文件名
+      const dateStr = this.formatDate(new Date());
       const fileName = `${dateStr}.json`;
-      const savePath = path.join(this.CHAT_LOGS_DIR, roomId, fileName);
+      const savePath = path.join(this.CHAT_LOGS_DIR, room.id, fileName);
       
       await this.saveMessageBase(savePath, message, baseEntry);
     } catch (e) {
-      log.error('CozeBot', '保存群聊消息失败:', e);
+      log.error('CozeBot', '保存群消息失败:', e);
     }
   }
 
@@ -903,6 +985,16 @@ export class CozeBot {
       const talker = message.talker();
       const messageType = message.type();
       const text = message.text();
+      const room = message.room();
+
+      // 记录消息基本信息
+      log.info('CozeBot', '收到消息:', {
+        type: MessageType[messageType],
+        messageType,
+        text,
+        talker: talker?.name(),
+        roomId: room?.id,
+      });
 
       // 过滤无效消息
       if (this.isNonsense(talker, messageType, text)) {
@@ -915,8 +1007,11 @@ export class CozeBot {
         return;
       }
 
-      // 获取消息所在的群聊
-      const room = message.room();
+      // 处理群通知消息（扫码入群）
+      if (messageType === MessageType.GroupNote && room) {
+        await this.handleGroupNote(room, text);
+        return;
+      }
       
       if (room) {
         // 群聊消息
@@ -933,6 +1028,72 @@ export class CozeBot {
       }
     } catch (e) {
       log.error('CozeBot', '处理消息失败:', e);
+    }
+  }
+
+  // 处理群通知消息
+  private async handleGroupNote(room: RoomInterface, text: string): Promise<void> {
+    try {
+      log.info('CozeBot', '处理群通知消息:', {
+        roomId: room.id,
+        text,
+      });
+
+      // 检查是否是目标群聊
+      if (!Config.welcomeRoomIds.includes(room.id)) {
+        log.info('CozeBot', `群 ${room.id} 不在欢迎语目标群列表中，跳过欢迎`);
+        return;
+      }
+
+      // 匹配扫码入群消息
+      // 支持多种可能的入群消息格式
+      const patterns = [
+        /"(.+)"通过扫描/,
+        /"(.+)"通过扫码/,
+        /\"(.+)\"通过/,
+        /(.+)通过扫描/,
+        /(.+)通过扫码/
+      ];
+
+      let newMemberName: string | null = null;
+      
+      // 尝试所有可能的匹配模式
+      for (const pattern of patterns) {
+        const match = text.match(pattern);
+        if (match && match[1]) {
+          newMemberName = match[1].trim();
+          log.info('CozeBot', `使用模式 ${pattern} 匹配到新成员名称: ${newMemberName}`);
+          break;
+        }
+      }
+
+      // 如果没有匹配到名称，记录日志并使用默认名称
+      if (!newMemberName) {
+        log.warn('CozeBot', `未能从消息中提取成员名称，原始消息: ${text}`);
+        newMemberName = '新朋友';
+      }
+
+      // 发送欢迎消息前记录状态
+      log.info('CozeBot', '准备发送扫码入群欢迎消息:', {
+        roomId: room.id,
+        roomTopic: await room.topic(),
+        memberCount: (await room.memberAll()).length,
+        newMember: newMemberName,
+        originalText: text,
+      });
+
+      // 发送欢迎消息
+      await this.sendWelcomeMessage(room, [newMemberName]);
+    } catch (e) {
+      log.error('CozeBot', '处理群通知消息失败:', e);
+      if (e instanceof Error) {
+        log.error('CozeBot', {
+          error: e.message,
+          stack: e.stack,
+          roomId: room?.id,
+          text,
+        });
+      }
     }
   }
 
@@ -1037,33 +1198,63 @@ export class CozeBot {
     }
   }
 
+  // 获取群成员显示名称的辅助方法
+  private async getMemberDisplayName(room: RoomInterface, member: ContactInterface): Promise<string> {
+    try {
+      // 优先获取群昵称
+      const roomAlias = await room.alias(member);
+      if (roomAlias) return roomAlias;
+
+      // 其次获取备注名
+      const alias = await member.alias();
+      if (alias) return alias;
+
+      // 最后使用微信名
+      return member.name();
+    } catch (e) {
+      log.warn('CozeBot', `获取成员显示名称失败:`, e);
+      return member.name() || '未知用户';
+    }
+  }
+
   private async sendWelcomeMessage(room: RoomInterface, names: string[]): Promise<void> {
     const maxRetries = 3;
     let retryCount = 0;
     
     while (retryCount < maxRetries) {
       try {
+        // 生成基础欢迎语
         const welcomeMessage = this.WELCOME_MESSAGE_TEMPLATE.replace('{names}', names.join('、'));
-        await this.saveGroupMessage(room, this.bot.currentUser, welcomeMessage);
         
+        // 保存欢迎消息到本地（使用 null 作为 talker，表示系统消息）
+        await this.saveGroupMessage(room, null, welcomeMessage);
+        
+        // 生成AI回复
         const userId = `group_${room.id}_welcome`;
         const aiReplyMessage = await this.onChat(welcomeMessage, userId);
         
         if (aiReplyMessage) {
+          // 组合完整消息
           const wholeReplyMessage = `${welcomeMessage}\n----------\n${aiReplyMessage}`;
+          
+          // 发送消息
           await this.reply(room, wholeReplyMessage);
+          
+          // 保存AI回复（使用机器人自身作为发送者）
           await this.saveGroupMessage(room, this.bot.currentUser, aiReplyMessage);
-          log.info('CozeBot', '欢迎消息发送成功');
+          
+          log.info('CozeBot', `欢迎消息发送成功: ${room.id}`);
           return;
         }
         
       } catch (e) {
         retryCount++;
-        log.error('CozeBot', `发送欢迎消息失败(第${retryCount}次尝试):`, e);
-        await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
+        const delay = 1000 * retryCount;
+        log.error('CozeBot', `发送欢迎消息失败(第${retryCount}次尝试), 将在${delay}ms后重试:`, e);
+        await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
     
-    log.error('CozeBot', `发送欢迎消息失败，已达到最大重试次数`);
+    log.error('CozeBot', `发送欢迎消息失败，已达到最大重试次数: ${room.id}`);
   }
 }

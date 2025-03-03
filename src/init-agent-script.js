@@ -14,50 +14,50 @@ var wxOffsets = {
         WX_SHARE_RECORD_MGR_OFFSET: 0x78cb40
     },
     snsDataMgr: {
-        WX_SNS_DATA_MGR_OFFSET: 0xc39680
+        WX_SNS_DATA_MGR_OFFSET: 0xc39680,
     },
     chatRoomMgr: {
-        WX_CHAT_ROOM_MGR_OFFSET: 0x78cf20
+        WX_CHAT_ROOM_MGR_OFFSET: 0x78cf20,
     },
     contactMgr: {
-        WX_CONTACT_MGR_OFFSET: 0x75a4a0
+        WX_CONTACT_MGR_OFFSET: 0x75a4a0,
     },
     syncMgr: {
-        WX_SYNC_MGR_OFFSET: 0xa87fd0
+        WX_SYNC_MGR_OFFSET: 0xa87fd0,
     },
     preDownloadMgr: {
-        WX_GET_PRE_DOWNLOAD_MGR_OFFSET: 0x80f110
+        WX_GET_PRE_DOWNLOAD_MGR_OFFSET: 0x80f110,
     },
     chatMgr: {
-        WX_CHAT_MGR_OFFSET: 0x792700
+        WX_CHAT_MGR_OFFSET: 0x792700,
     },
     videoMgr: {
-        WX_VIDEO_MGR_OFFSET: 0x829820
+        WX_VIDEO_MGR_OFFSET: 0x829820,
     },
     patMgr: {
-        WX_PAT_MGR_OFFSET: 0x931730
+        WX_PAT_MGR_OFFSET: 0x931730,
     },
     searchContactMgr: {
-        WX_SEARCH_CONTACT_MGR_OFFSET: 0xa6cb00
+        WX_SEARCH_CONTACT_MGR_OFFSET: 0xa6cb00,
     },
     appMsgMgr: {
-        WX_APP_MSG_MGR_OFFSET: 0x76ae20
+        WX_APP_MSG_MGR_OFFSET: 0x76ae20,
     },
     sendMessageMgr: {
-        WX_SEND_MESSAGE_MGR_OFFSET: 0x768140
+        WX_SEND_MESSAGE_MGR_OFFSET: 0x768140,
     },
     setChatMsgValue: {
-        WX_INIT_CHAT_MSG_OFFSET: 0xf59e40
+        WX_INIT_CHAT_MSG_OFFSET: 0xf59e40,
     },
     chatMsg: {
         WX_NEW_CHAT_MSG_OFFSET: 0x76f010,
         WX_FREE_CHAT_MSG_OFFSET: 0x756960,
         WX_FREE_CHAT_MSG_2_OFFSET: 0x6f4ea0,
-        WX_FREE_CHAT_MSG_INSTANCE_COUNTER_OFFSET: 0x756e30
+        WX_FREE_CHAT_MSG_INSTANCE_COUNTER_OFFSET: 0x756e30,
     },
     sns: {
         WX_SNS_GET_FIRST_PAGE_OFFSET: 0x14e2140,
-        WX_SNS_GET_NEXT_PAGE_OFFSET: 0x14e21e0
+        WX_SNS_GET_NEXT_PAGE_OFFSET: 0x14e21e0,
     },
     chatRoom: {
         WX_GET_CHAT_ROOM_DETAIL_INFO_OFFSET: 0xbde090,
@@ -71,13 +71,13 @@ var wxOffsets = {
         WX_MOD_CHAT_ROOM_MEMBER_NICK_NAME_OFFSET: 0xbd9680,
         WX_TOP_MSG_OFFSET: 0xbe1840,
         WX_REMOVE_TOP_MSG_OFFSET: 0xbe1620,
-        WX_GET_MEMBER_NICKNAME_OFFSET: 0xbdf3f0,
-        WX_FREE_CONTACT_OFFSET: 0xea7880
+        WX_GET_MEMBER_NICKNAME_OFFSET: 0xbdf3f0, // 0xbdf3f0 0xb703f0
+        WX_FREE_CONTACT_OFFSET: 0xea7880,
     },
     wcpayinfo: {
         WX_NEW_WCPAYINFO_OFFSET: 0x7b2e60,
         WX_FREE_WCPAYINFO_OFFSET: 0x79c250,
-        WX_CONFIRM_RECEIPT_OFFSET: 0x15e2c20
+        WX_CONFIRM_RECEIPT_OFFSET: 0x15e2c20,
     },
     contact: {
         WX_CONTACT_GET_LIST_OFFSET: 0xc089f0,
@@ -103,12 +103,12 @@ var wxOffsets = {
         WX_GET_APP_MSG_XML_OFFSET: 0xe628a0,
         WX_FREE_APP_MSG_INFO_OFFSET: 0x79d900,
         WX_PUSH_THUMB_TASK_OFFSET: 0x82ba40,
-        WX_DOWNLOAD_VIDEO_IMG_OFFSET: 0xd46c30
+        WX_DOWNLOAD_VIDEO_IMG_OFFSET: 0xd46c30,
     },
     // pat
     pat: {
         WX_SEND_PAT_MSG_OFFSET: 0x1421940,
-        WX_RET_OFFSET: 0x1D58751
+        WX_RET_OFFSET: 0x1D58751,
     },
     // search hook
     searchHook: {
@@ -116,7 +116,7 @@ var wxOffsets = {
         WX_SEARCH_CONTACT_ERROR_CODE_HOOK_NEXT_OFFSET: 0xf57a20,
         WX_SEARCH_CONTACT_DETAIL_HOOK_OFFSET: 0xa8ceb0,
         WX_SEARCH_CONTACT_DETAIL_HOOK_NEXT_OFFSET: 0xa8d100,
-        WX_SEARCH_CONTACT_OFFSET: 0xcd1510
+        WX_SEARCH_CONTACT_OFFSET: 0xcd1510,
     },
     // login
     login: {
@@ -124,26 +124,26 @@ var wxOffsets = {
         WX_LOGOUT_OFFSET: 0xe58870,
         WX_ACCOUNT_SERVICE_OFFSET: 0x768c80,
         WX_GET_APP_DATA_SAVE_PATH_OFFSET: 0xf3a610,
-        WX_GET_CURRENT_DATA_PATH_OFFSET: 0xc872c0
+        WX_GET_CURRENT_DATA_PATH_OFFSET: 0xc872c0,
     },
     myselfInfo: {
-        WX_SELF_ID_OFFSET: 0x2FFD484
+        WX_SELF_ID_OFFSET: 0x2FFD484,
     },
     // forward
     forward: {
-        WX_FORWARD_MSG_OFFSET: 0xce6730
+        WX_FORWARD_MSG_OFFSET: 0xce6730,
     },
     // send file
     sendFile: {
-        WX_SEND_FILE_OFFSET: 0xb6d1f0
+        WX_SEND_FILE_OFFSET: 0xb6d1f0,
     },
     // send image
     sendImage: {
-        WX_SEND_IMAGE_OFFSET: 0xce6640
+        WX_SEND_IMAGE_OFFSET: 0xce6640,
     },
     // send text
     sendText: {
-        WX_SEND_TEXT_OFFSET: 0xCE6C80
+        WX_SEND_TEXT_OFFSET: 0xCE6C80,
     },
     sendLink: {
         NEW_MM_READ_ITEM_OFFSET: 0x76e630,
@@ -164,13 +164,13 @@ var wxOffsets = {
         // #define FREE_WA_UPDATABLE_MSG_INFO_OFFSET 0x79ca10
         FREE_WA_UPDATABLE_MSG_INFO_OFFSET: 0x79ca10,
         // #define SEND_APP_MSG_OFFSET 0xfe7840
-        SEND_APP_MSG_OFFSET: 0xfe7840
+        SEND_APP_MSG_OFFSET: 0xfe7840,
     },
     // ocr
     ocr: {
         WX_INIT_OBJ_OFFSET: 0x80a800,
         WX_OCR_MANAGER_OFFSET: 0x80f270,
-        WX_DO_OCR_TASK_OFFSET: 0x13da3e0
+        WX_DO_OCR_TASK_OFFSET: 0x13da3e0,
     },
     storage: {
         CONTACT_G_PINSTANCE_OFFSET: 0x2ffddc8,
@@ -208,26 +208,26 @@ var wxOffsets = {
         DEL_SESSIONINFO_STORAGE_VFTABLE: 0x2AC5F98,
         FUNCTION_MSG_STORAGE_VFTABLE: 0x2ACD10C,
         FUNCTION_MSG_TASK_STORAGE_VFTABLE: 0x2ACC5C8,
-        REVOKE_MSG_STORAGE_VFTABLE: 0x2AD27BC
+        REVOKE_MSG_STORAGE_VFTABLE: 0x2AD27BC,
     },
     hookImage: {
         WX_HOOK_IMG_OFFSET: 0xd723dc,
-        WX_HOOK_IMG_NEXT_OFFSET: 0xe91d90
+        WX_HOOK_IMG_NEXT_OFFSET: 0xe91d90,
     },
     hookLog: {
         WX_HOOK_LOG_OFFSET: 0xf57d67,
-        WX_HOOK_LOG_NEXT_OFFSET: 0x240ea71
+        WX_HOOK_LOG_NEXT_OFFSET: 0x240ea71,
     },
     hookMsg: {
         WX_RECV_MSG_HOOK_OFFSET: 0xd19a0b,
         WX_RECV_MSG_HOOK_NEXT_OFFSET: 0x756960,
         WX_SNS_HOOK_OFFSET: 0x14f9e15,
-        WX_SNS_HOOK_NEXT_OFFSET: 0x14fa0a0
+        WX_SNS_HOOK_NEXT_OFFSET: 0x14fa0a0,
     },
     hookVoice: {
         WX_HOOK_VOICE_OFFSET: 0xd4d8d8,
-        WX_HOOK_VOICE_NEXT_OFFSET: 0x203d130
-    }
+        WX_HOOK_VOICE_NEXT_OFFSET: 0x203d130,
+    },
 };
 // 当前支持的微信版本
 var availableVersion = 1661534743; // 3.9.2.23  ==0x63090217
@@ -415,7 +415,7 @@ var hookLoginEventCallback = (function () {
                 setImmediate(function () { return nativeativeFunction(); });
             }
             return retval;
-        }
+        },
     });
     var checkLoginStatus = function () {
         var isLoggedIn = isLoggedInFunction();
@@ -447,7 +447,7 @@ var hookLogoutEventCallback = (function () {
                     console.error('登出回调失败：', e);
                     throw new Error(e);
                 }
-            }
+            },
         });
         return nativeCallback;
     }
@@ -464,7 +464,7 @@ var getQrcodeLoginData = function () {
         status: 0,
         uuid: '',
         wxid: '',
-        avatarUrl: ''
+        avatarUrl: '',
     };
     if (!qlMgr.isNull()) {
         json.uuid = readString(qlMgr.add(8));
@@ -525,7 +525,7 @@ var getMyselfInfoFunction = function () {
         id: wx_id,
         code: wx_code,
         name: wx_name,
-        head_img_url: head_img_url
+        head_img_url: head_img_url,
     };
     var myselfJson = JSON.stringify(myself);
     // console.log('myselfJson:', myselfJson)
@@ -600,10 +600,10 @@ var getContactNativeFunction = function () {
                 del_flag: start.add(0x4c).readU32(),
                 type: start.add(0x50).readU32(),
                 verify_flag: start.add(0x54).readU32(),
-                alias: start.add(0x58).readPointer().readUtf16String() || '',
-                name: start.add(0x6c).readPointer().readUtf16String(),
-                pinyin: start.add(0xAC).readPointer().readUtf16String(),
-                pinyin_all: start.add(0xC0).readPointer().readUtf16String()
+                alias: start.add(0x58).readPointer().readUtf16String() || '', // 20字节
+                name: start.add(0x6c).readPointer().readUtf16String(), // 64字节
+                pinyin: start.add(0xAC).readPointer().readUtf16String(), // 20字节
+                pinyin_all: start.add(0xC0).readPointer().readUtf16String(), // 20字节
             };
             // if(contact.alias){
             //   console.log('contact:', JSON.stringify(contact))
@@ -633,7 +633,7 @@ var modifyContactRemarkFunction = function (contactId, text) {
     var txtAsm = Memory.alloc(Process.pageSize);
     Memory.patchCode(txtAsm, Process.pageSize, function (code) {
         var writer = new X86Writer(code, {
-            pc: txtAsm
+            pc: txtAsm,
         });
         //     PUSHAD
         //     PUSHFD
@@ -692,7 +692,7 @@ var getHeadImage = function (contactId, url) {
     var temp = Memory.alloc(0x8);
     Memory.patchCode(txtAsm, Process.pageSize, function (code) {
         var writer = new X86Writer(code, {
-            pc: txtAsm
+            pc: txtAsm,
         });
         writer.putPushfx();
         writer.putPushax();
@@ -748,7 +748,7 @@ var addFriendByWxid = function (contactId, text) {
     nullObj.writeByteArray([0, 0, 0, 0, 0, 0, 0xF]); // 根据C++代码中的初始化逻辑进行调整
     Memory.patchCode(txtAsm, Process.pageSize, function (code) {
         var writer = new X86Writer(code, {
-            pc: txtAsm
+            pc: txtAsm,
         });
         // PUSHAD
         // PUSHFD
@@ -911,7 +911,7 @@ var delMemberFromChatRoom = function (chat_room_id, wxids) {
     membersBuffer.add(Process.pointerSize * wxids.length).writePointer(NULL); // 确保数组以NULL结尾
     Memory.patchCode(txtAsm, Process.pageSize, function (code) {
         var writer = new X86Writer(code, {
-            pc: txtAsm
+            pc: txtAsm,
         });
         writer.putPushfx();
         writer.putPushax();
@@ -1096,7 +1096,7 @@ var sendMsgNativeFunction = function (talkerId, content) {
     var ecxBuffer = Memory.alloc(0x2d8);
     Memory.patchCode(txtAsm, Process.pageSize, function (code) {
         var cw = new X86Writer(code, {
-            pc: txtAsm
+            pc: txtAsm,
         });
         cw.putPushfx();
         cw.putPushax();
@@ -1188,7 +1188,7 @@ var sendPicMsgNativeFunction = function (contactId, path) {
     // const test_offset1 = 0x701DC0;
     Memory.patchCode(picAsm, Process.pageSize, function (code) {
         var cw = new X86Writer(code, {
-            pc: picAsm
+            pc: picAsm,
         });
         cw.putPushfx();
         cw.putPushax();
@@ -1292,9 +1292,9 @@ var recvMsgNativeCallback = (function () {
                             var thumbPath = thumbPtr.readUtf16String();
                             var hdPath = hdPtr.readUtf16String();
                             var picData = [
-                                thumbPath,
-                                thumbPath,
-                                hdPath,
+                                thumbPath, //  PUPPET.types.Image.Unknown
+                                thumbPath, //  PUPPET.types.Image.Thumbnail
+                                hdPath, //  PUPPET.types.Image.HD
                                 hdPath, //  PUPPET.types.Image.Artwork
                             ];
                             var content = JSON.stringify(picData);
@@ -1342,7 +1342,7 @@ var recvMsgNativeCallback = (function () {
                     console.error('接收消息回调失败：', e);
                     throw new Error(e);
                 }
-            }
+            },
         });
         return nativeCallback;
     }
