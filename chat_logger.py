@@ -1,10 +1,10 @@
 import os
 import json
 import shutil
-import fcntl
+import msvcrt
 import logging
 from datetime import datetime
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional, Union, Tuple
 from pathlib import Path
 from contextlib import contextmanager
 
@@ -26,25 +26,48 @@ class ChatLogger:
         self.base_dir = Path(base_dir)
         self.base_dir.mkdir(parents=True, exist_ok=True)
         
+        # 支持的媒体类型
+        self.MEDIA_TYPES = {
+            "Message#Image": "images",
+            "Message#Video": "videos",
+            "Message#File": "files",
+            "Message#Voice": "voice",
+            "Message#Link": "links"
+        }
+
     @contextmanager
     def _file_lock(self, file_path: Path):
-        """文件锁上下文管理器"""
+        """文件锁上下文管理器 - Windows 实现"""
         lock_file = file_path.with_suffix('.lock')
+        lock_handle = None
         try:
-            with open(lock_file, 'w') as f:
-                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
-                yield
+            # 尝试创建或打开锁文件
+            try:
+                lock_handle = open(lock_file, 'w')
+                # 在 Windows 上使用 msvcrt 进行文件锁定
+                msvcrt.locking(lock_handle.fileno(), msvcrt.LK_NBLCK, 1)
+            except IOError:
+                if lock_handle:
+                    lock_handle.close()
+                raise
+            yield
         finally:
-            if lock_file.exists():
+            if lock_handle:
                 try:
-                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-                    lock_file.unlink()
+                    # 释放锁
+                    msvcrt.locking(lock_handle.fileno(), msvcrt.LK_UNLCK, 1)
+                    lock_handle.close()
+                    if lock_file.exists():
+                        lock_file.unlink()
                 except Exception as e:
                     logger.error(f"释放文件锁失败: {e}")
 
     def normalize_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
         """标准化消息格式"""
         try:
+            # 记录原始消息用于调试
+            logger.debug(f"原始消息: {json.dumps(message, ensure_ascii=False)}")
+            
             # 解析消息类型
             msg_type = "text"  # 默认类型
             if isinstance(message, dict):
@@ -53,26 +76,34 @@ class ChatLogger:
                     msg_type = raw_type.split("#")[1].split("[")[0]
                     msg_type = self.MESSAGE_TYPES.get(msg_type, "text")
             
-            # 解析发送者信息
-            sender_info = message.get("talker", {})
-            if isinstance(sender_info, str) and "<" in sender_info:
-                # 解析格式如 "Contact<Karl Qinlin>"
-                sender_name = sender_info.split("<")[1].split(">")[0]
-            else:
-                sender_name = str(sender_info)
+            # 解析发送者和群组信息
+            room_name = ""
+            sender_name = ""
             
-            # 解析群组信息
-            room_info = message.get("room", {})
-            if isinstance(room_info, str) and "<" in room_info:
-                # 解析格式如 "Room<华工CS98小群>"
-                room_name = room_info.split("<")[1].split(">")[0]
-            else:
-                room_name = str(room_info)
+            # 解析消息头部信息，格式如：🗣Contact<name>@👥Room<group>
+            if "talker" in message:
+                header = str(message["talker"])
+                if "@" in header:
+                    parts = header.split("@")
+                    contact_part = parts[0]
+                    room_part = parts[1]
+                    
+                    # 提取发送者名称
+                    if "<" in contact_part and ">" in contact_part:
+                        sender_name = contact_part.split("<")[1].split(">")[0]
+                    
+                    # 提取群组名称
+                    if "<" in room_part and ">" in room_part:
+                        room_name = room_part.split("<")[1].split(">")[0]
+                else:
+                    # 私聊消息
+                    if "<" in header and ">" in header:
+                        sender_name = header.split("<")[1].split(">")[0]
             
             # 构建标准化消息
             normalized_msg = {
                 "type": msg_type,
-                "timestamp": message.get("timestamp", datetime.now().isoformat()),
+                "timestamp": datetime.now().isoformat(),
                 "room_id": message.get("room_id", ""),
                 "room_name": room_name,
                 "sender_id": message.get("talker_id", ""),
@@ -81,15 +112,33 @@ class ChatLogger:
                 "raw_message": message
             }
             
-            # 处理媒体内容
-            if msg_type in ["image", "video", "file", "audio"]:
-                normalized_msg["media"] = {
-                    "type": msg_type,
-                    "file_name": message.get("file_name", f"{msg_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"),
-                    "file_path": message.get("file_path", ""),
-                    "size": message.get("file_size", 0),
-                    "mime_type": message.get("mime_type", "")
-                }
+            # 处理图片消息
+            if msg_type == "image":
+                # 处理pic_msg字段
+                if "pic_msg" in message:
+                    try:
+                        pic_paths = message["pic_msg"]
+                        if isinstance(pic_paths, str):
+                            pic_paths = json.loads(pic_paths)
+                        
+                        if isinstance(pic_paths, list):
+                            # 过滤并优先使用Image目录下的原图
+                            image_paths = [p for p in pic_paths if "\\Image\\" in p]
+                            if not image_paths:
+                                image_paths = pic_paths
+                            
+                            # 去重路径
+                            image_paths = list(dict.fromkeys(image_paths))
+                            
+                            normalized_msg["media"] = {
+                                "type": "image",
+                                "file_paths": image_paths,
+                                "file_name": f"image_{datetime.now().strftime('%Y%m%d_%H%M%S')}.dat",
+                                "original_paths": pic_paths
+                            }
+                            logger.info(f"处理图片路径: {image_paths}")
+                    except Exception as e:
+                        logger.error(f"处理pic_msg失败: {e}", exc_info=True)
             
             return normalized_msg
             
@@ -97,126 +146,115 @@ class ChatLogger:
             logger.error(f"消息格式化失败: {e}", exc_info=True)
             return message
 
-    def handle_message(self, message: Dict[str, Any]) -> bool:
-        """处理所有接收到的消息"""
+    def _save_media_message(self, message: Dict[str, Any]) -> bool:
+        """保存媒体消息"""
         try:
-            # 标准化消息格式
-            normalized_msg = self.normalize_message(message)
+            msg_type = message.get("type", "")
+            media_type = self.MEDIA_TYPES.get(msg_type)
             
-            # 确定消息类型（群聊/私聊）
-            if "room_name" in normalized_msg and normalized_msg["room_name"]:
-                return self.save_group_message(
-                    normalized_msg,
-                    group_id=normalized_msg.get("room_id", ""),
-                    group_name=normalized_msg["room_name"]
-                )
-            elif "sender_name" in normalized_msg:
-                return self.save_private_message(
-                    normalized_msg,
-                    user_id=normalized_msg.get("sender_id", ""),
-                    user_name=normalized_msg["sender_name"]
-                )
-            else:
-                logger.warning(f"无法确定消息类型: {normalized_msg}")
+            if not media_type:
+                logger.warning(f"未知的媒体类型: {msg_type}")
                 return False
-                
-        except Exception as e:
-            logger.error(f"处理消息失败: {e}", exc_info=True)
-            return False
-        
-    def save_message(self, message: Dict[str, Any], chat_type: str, chat_id: str, chat_name: str) -> bool:
-        """
-        保存所有类型的消息到日志文件
-        
-        Args:
-            message: 消息内容字典
-            chat_type: 消息类型 (group/private)
-            chat_id: 聊天ID
-            chat_name: 群名称或用户名称
-        Returns:
-            bool: 是否成功保存
-        """
-        try:
-            # 使用实际名称作为目录名（移除非法字符）
-            safe_chat_name = self._get_safe_name(chat_name)
-            chat_dir = self.base_dir / chat_type / safe_chat_name
+            
+            # 获取聊天信息
+            room_id = message.get("room_id", "unknown_room")
+            chat_dir = self.base_dir / room_id
             chat_dir.mkdir(parents=True, exist_ok=True)
             
-            # 按年月组织日志文件
+            # 创建媒体目录
             date_str = datetime.now().strftime("%Y%m")
-            log_file = chat_dir / f"{date_str}.log"
-            
-            # 添加消息元数据
-            log_entry = {
-                "timestamp": datetime.now().isoformat(),
-                "chat_id": chat_id,
-                "chat_name": chat_name,
-                "message_id": message.get("message_id", ""),
-                "sender_id": message.get("sender_id", ""),
-                "sender_name": message.get("sender_name", ""),
-                "content": message.get("content", ""),
-                "raw_message": message  # 保存完整的原始消息
-            }
-            
-            # 处理多媒体内容
-            if "media" in message:
-                media_info = message["media"]
-                if not self._handle_media(media_info, chat_dir, log_entry):
-                    logger.warning(f"处理媒体文件失败: {chat_id}")
-            
-            # 使用文件锁保证并发安全
-            with self._file_lock(log_file):
-                with log_file.open("a", encoding="utf-8", buffering=1) as f:  # buffering=1 表示行缓冲
-                    f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
-                    f.flush()  # 确保立即写入磁盘
-                    os.fsync(f.fileno())  # 强制同步到磁盘
-            
-            logger.info(f"成功保存消息: {chat_type}/{safe_chat_name}/{message.get('message_id', '')}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"保存消息失败: {e}", exc_info=True)
-            return False
-    
-    def _handle_media(self, media_info: Dict[str, Any], chat_dir: Path, log_entry: Dict[str, Any]) -> bool:
-        """处理媒体文件"""
-        try:
-            media_type = media_info.get("type", "other")
-            media_date = datetime.now().strftime("%Y%m%d")
-            media_dir = chat_dir / "media" / media_type / media_date
+            media_dir = chat_dir / "media" / media_type / date_str
             media_dir.mkdir(parents=True, exist_ok=True)
             
-            timestamp = datetime.now().strftime("%H%M%S")
-            original_filename = media_info["file_name"]
-            file_ext = Path(original_filename).suffix
-            new_filename = f"{timestamp}_{self._get_safe_name(original_filename)}{file_ext}"
-            media_path = media_dir / new_filename
+            # 保存媒体文件
+            if msg_type == "Message#Image" and "pic_msg" in message:
+                saved = self._save_image_files(message["pic_msg"], media_dir)
+            elif "file_path" in message:
+                saved = self._save_single_file(message["file_path"], media_dir)
+            else:
+                saved = True  # 如果没有文件需要保存，也认为是成功的
             
-            if "file_path" in media_info:
-                source_path = Path(media_info["file_path"])
-                if source_path.exists():
-                    shutil.copy2(source_path, media_path)
-            
-            log_entry["media"] = {
-                "type": media_type,
-                "path": str(media_path.relative_to(self.base_dir)),
-                "original_name": original_filename,
-                "size": media_info.get("size", 0),
-                "mime_type": media_info.get("mime_type", "")
+            # 保存消息记录到日志文件
+            log_file = chat_dir / f"{date_str}.json"
+            log_entry = {
+                "timestamp": datetime.now().isoformat(),
+                "type": msg_type,
+                "sender": message.get("talker", ""),
+                "media_type": media_type,
+                "content": message.get("content", ""),
+                "saved": saved
             }
+            
+            with log_file.open("a", encoding="utf-8") as f:
+                json.dump(log_entry, f, ensure_ascii=False)
+                f.write("\n")
+            
             return True
+            
         except Exception as e:
-            logger.error(f"处理媒体文件失败: {e}", exc_info=True)
+            logger.error(f"保存媒体消息失败: {e}", exc_info=True)
             return False
     
-    def save_group_message(self, message: Dict[str, Any], group_id: str, group_name: str) -> bool:
-        """保存群聊消息"""
-        return self.save_message(message, "groups", group_id, group_name)
+    def _save_image_files(self, pic_paths: list, media_dir: Path) -> bool:
+        """保存图片文件"""
+        try:
+            for pic_path in pic_paths:
+                if "\\Image\\" in pic_path:  # 只保存原图，忽略缩略图
+                    source_path = Path(pic_path.replace("\\", "/"))
+                    if source_path.exists():
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        new_name = f"{timestamp}_{source_path.name}"
+                        target_path = media_dir / new_name
+                        shutil.copy2(source_path, target_path)
+                        logger.info(f"保存图片: {target_path}")
+            return True
+        except Exception as e:
+            logger.error(f"保存图片失败: {e}", exc_info=True)
+            return False
     
-    def save_private_message(self, message: Dict[str, Any], user_id: str, user_name: str) -> bool:
-        """保存私聊消息"""
-        return self.save_message(message, "private", user_id, user_name)
+    def _save_single_file(self, file_path: str, media_dir: Path) -> bool:
+        """保存单个文件"""
+        try:
+            source_path = Path(file_path.replace("\\", "/"))
+            if source_path.exists():
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                new_name = f"{timestamp}_{source_path.name}"
+                target_path = media_dir / new_name
+                shutil.copy2(source_path, target_path)
+                logger.info(f"保存文件: {target_path}")
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"保存文件失败: {e}", exc_info=True)
+            return False
     
+    def _save_text_message(self, message: Dict[str, Any]) -> bool:
+        """保存文本消息"""
+        try:
+            room_id = message.get("room_id", "unknown_room")
+            chat_dir = self.base_dir / room_id
+            chat_dir.mkdir(parents=True, exist_ok=True)
+            
+            date_str = datetime.now().strftime("%Y%m")
+            log_file = chat_dir / f"{date_str}.json"
+            
+            log_entry = {
+                "timestamp": datetime.now().isoformat(),
+                "type": "text",
+                "sender": message.get("talker", ""),
+                "content": message.get("content", "")
+            }
+            
+            with log_file.open("a", encoding="utf-8") as f:
+                json.dump(log_entry, f, ensure_ascii=False)
+                f.write("\n")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"保存文本消息失败: {e}", exc_info=True)
+            return False
+
     def _get_safe_name(self, name: str) -> str:
         """转换名称为安全的目录名"""
         # 移除或替换不安全的字符

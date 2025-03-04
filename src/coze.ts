@@ -7,53 +7,33 @@ import { log } from 'wechaty-puppet';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Wechaty } from 'wechaty';
-
-enum MessageType {
-  Unknown = 0,
-  Attachment = 1, // Attach(6),
-  Audio = 2, // Audio(1), Voice(34)
-  Contact = 3, // ShareCard(42)
-  ChatHistory = 4, // ChatHistory(19)
-  Emoticon = 5, // Sticker: Emoticon(15), Emoticon(47)
-  Image = 6, // Img(2), Image(3)
-  Text = 7, // Text(1)
-  Location = 8, // Location(48)
-  MiniProgram = 9, // MiniProgram(33)
-  GroupNote = 10, // GroupNote(53)
-  Transfer = 11, // Transfers(2000)
-  RedEnvelope = 12, // RedEnvelopes(2001)
-  Recalled = 13, // Recalled(10002)
-  Url = 14, // Url(5)
-  Video = 15, // Video(4), Video(43)
-  Post = 16, // Moment, Channel, Tweet, etc
-}
+import { MessageType } from './types/message.js';
+import { ICozeBotMessageHandler } from './interfaces/bot.js';
+import { MessageProcessor } from './services/messageProcessor.js';
 
 /** 
  * CozeBot - Wechaty Coze Bot Implementation
  * @description 基于 Wechaty 的 Coze 机器人实现
  */
-export class CozeBot {
+export class CozeBot implements ICozeBotMessageHandler {
   // chatbot name (WeChat account name)
-  botName: string = '';
+  public botName: string = '';
 
   // chatbot start time (prevent duplicate response on restart)
-  startTime: Date = new Date();
+  public startTime: Date = new Date();
 
   // self-chat may cause some issue for some WeChat Account
   // please set to true if self-chat cause some errors
-  disableSelfChat: boolean = false;
+  public disableSelfChat: boolean = false;
 
   // chatbot trigger keyword
-  cozeTriggerKeyword: string = Config.cozeTriggerKeyword;
+  private cozeTriggerKeyword: string = Config.cozeTriggerKeyword;
 
   // Coze error response
-  cozeErrorMessage: string = '🤖️：AI智能体摆烂了，请稍后再试～';
-
-  // Coze system content configuration (guided by OpenAI official document)
-  currentDate: string = new Date().toISOString().split('T')[0] || '';
+  private cozeErrorMessage: string = '🤖️：AI智能体摆烂了，请稍后再试～';
 
   // message size for a single reply by the bot
-  SINGLE_MESSAGE_MAX_SIZE: number = 800;
+  private SINGLE_MESSAGE_MAX_SIZE: number = 800;
 
   private modelService: IModelService;
   
@@ -86,12 +66,15 @@ export class CozeBot {
   private scheduleTimer: NodeJS.Timeout | null = null;
 
   // 群聊消息保存目录
-  private readonly CHAT_LOGS_DIR = 'chat_logs';
+  public readonly CHAT_LOGS_DIR = 'chat_logs';
   
   // 多媒体文件保存目录
-  private readonly MEDIA_DIR = 'media';
+  public readonly MEDIA_DIR = 'media';
 
-  private readonly WELCOME_MESSAGE_TEMPLATE = '欢迎新成员 {names} 加入群，发现生命之美！';
+  public readonly WELCOME_MESSAGE_TEMPLATE = '欢迎新成员 {names} 加入群，发现生命之美！';
+
+  // 消息处理器
+  public messageProcessor: MessageProcessor;
 
   constructor(private readonly bot: Wechaty) {
     this.modelService = ModelFactory.createModel(Config.modelConfig);
@@ -251,6 +234,9 @@ export class CozeBot {
         }
       }
     });
+
+    // 初始化消息处理器
+    this.messageProcessor = new MessageProcessor(this);
   }
 
   // set bot name during login stage
@@ -297,60 +283,45 @@ export class CozeBot {
     return text
   }
 
-  // check whether Coze bot can be triggered
-  private async triggerCozeMessage(text: string, isPrivateChat: boolean = false): Promise<string> {
-    let returnText = '';
-    let triggered = false;
-    if (isPrivateChat) {
-      returnText = text;
-    } else {
-      // 群聊中检查@触发
-      const textMention = `@${this.botName}`;
-      
-      if (text.includes(textMention)) {
-        // 找到@的位置
-        const mentionIndex = text.indexOf(textMention);
-        const beforeMention = text.slice(0, mentionIndex).trim();
-        const afterMention = text.slice(mentionIndex + textMention.length).trim();
-        
-        // 组合@前后的文本
-        const combinedText = [beforeMention, afterMention].filter(Boolean).join(' ');
-        
-        if (combinedText) {
-          triggered = true;
-          returnText = combinedText;
-          console.log(`🎯 Coze triggered by mention at position ${mentionIndex}:`, {
-            original: text,
-            processed: returnText
-          });
-        }
-      }
-      // 保留特殊关键词触发
-      else if (text.includes('恭喜发财')) { 
-        triggered = true;
-        returnText = "恭喜发财！介绍一下自己，你有什么能力";
-      }
+  // 将私有方法改为公共方法
+  public shouldSendToModel(messageType: MessageType, text: string): boolean {
+    log.info('CozeBot', `正在判断是否发送给模型 - 类型: ${MessageType[messageType]}, 内容: ${text}`);
+
+    if (messageType === MessageType.Text) {
+      log.info('CozeBot', `普通文本消息，将发送给模型: ${text}`);
+      return true;
     }
-    
-    if (triggered) {
-      console.log(`🎯 Coze triggered: ${returnText}`);
+
+    if (messageType === MessageType.GroupNote) {
+      const isValid = this.isValidJoinMessage(text);
+      if (isValid) {
+        log.info('CozeBot', `入群消息，将发送给模型: ${text}`);
+        return true;
+      }
+      log.info('CozeBot', `其他群通知消息，不发送给模型: ${text}`);
+      return false;
     }
-    return returnText;
+
+    log.info('CozeBot', `其他类型消息，不发送给模型: ${MessageType[messageType]}`);
+    return false;
   }
 
-  // filter out the message that does not need to be processed
-  private isNonsense(talker: ContactInterface, _messageType: MessageType, text: string): boolean {
-    return (
-      (this.disableSelfChat && talker.self()) ||
-      // 虽然可能误伤，但是更全面地过滤
-      talker.name().includes('微信') ||
-      // video or voice reminder
-      text.includes('收到一条视频/语音聊天消息，请在手机上查看') ||
-      // red pocket reminder
-      text.includes('收到红包，请在手机上查看') ||
-      // location information
-      text.includes('/cgi-bin/mmwebwx-bin/webwxgetpubliclinkimg')
-    );
+  public shouldSendWelcomeMessage(messageType: MessageType, text: string): boolean {
+    log.info('CozeBot', `正在判断是否发送欢迎消息 - 类型: ${MessageType[messageType]}, 内容: ${text}`);
+
+    if (messageType !== MessageType.GroupNote) {
+      log.info('CozeBot', `非群通知消息，不发送欢迎语: ${MessageType[messageType]}`);
+      return false;
+    }
+
+    const isValid = this.isValidJoinMessage(text);
+    if (isValid) {
+      log.info('CozeBot', `入群消息，发送欢迎语: ${text}`);
+      return true;
+    }
+
+    log.info('CozeBot', `非入群消息，不发送欢迎语: ${text}`);
+    return false;
   }
 
   // 从文件加载历史消息
@@ -980,120 +951,32 @@ export class CozeBot {
   }
 
   // 处理消息的主方法
-  async onMessage(message: Message): Promise<void> {
+  public async onMessage(message: Message): Promise<void> {
     try {
       const talker = message.talker();
       const messageType = message.type();
       const text = message.text();
-      const room = message.room();
 
-      // 记录消息基本信息
       log.info('CozeBot', '收到消息:', {
         type: MessageType[messageType],
         messageType,
         text,
         talker: talker?.name(),
-        roomId: room?.id,
+        roomId: message.room()?.id,
       });
 
-      // 过滤无效消息
       if (this.isNonsense(talker, messageType, text)) {
         return;
       }
 
-      // 检查是否在黑名单中
       if (this.isBlacklisted(talker.name())) {
         log.info('CozeBot', `用户 ${talker.name()} 在黑名单中，跳过处理`);
         return;
       }
 
-      // 处理群通知消息（扫码入群）
-      if (messageType === MessageType.GroupNote && room) {
-        await this.handleGroupNote(room, text);
-        return;
-      }
-      
-      if (room) {
-        // 群聊消息
-        const triggerText = await this.triggerCozeMessage(text, false);
-        if (triggerText) {
-          await this.onGroupMessage(room, triggerText, talker.name());
-        }
-      } else {
-        // 私聊消息
-        const triggerText = await this.triggerCozeMessage(text, true);
-        if (triggerText) {
-          await this.onPrivateMessage(talker, triggerText);
-        }
-      }
+      await this.messageProcessor.processMessage(message);
     } catch (e) {
       log.error('CozeBot', '处理消息失败:', e);
-    }
-  }
-
-  // 处理群通知消息
-  private async handleGroupNote(room: RoomInterface, text: string): Promise<void> {
-    try {
-      log.info('CozeBot', '处理群通知消息:', {
-        roomId: room.id,
-        text,
-      });
-
-      // 检查是否是目标群聊
-      if (!Config.welcomeRoomIds.includes(room.id)) {
-        log.info('CozeBot', `群 ${room.id} 不在欢迎语目标群列表中，跳过欢迎`);
-        return;
-      }
-
-      // 匹配扫码入群消息
-      // 支持多种可能的入群消息格式
-      const patterns = [
-        /"(.+)"通过扫描/,
-        /"(.+)"通过扫码/,
-        /\"(.+)\"通过/,
-        /(.+)通过扫描/,
-        /(.+)通过扫码/
-      ];
-
-      let newMemberName: string | null = null;
-      
-      // 尝试所有可能的匹配模式
-      for (const pattern of patterns) {
-        const match = text.match(pattern);
-        if (match && match[1]) {
-          newMemberName = match[1].trim();
-          log.info('CozeBot', `使用模式 ${pattern} 匹配到新成员名称: ${newMemberName}`);
-          break;
-        }
-      }
-
-      // 如果没有匹配到名称，记录日志并使用默认名称
-      if (!newMemberName) {
-        log.warn('CozeBot', `未能从消息中提取成员名称，原始消息: ${text}`);
-        newMemberName = '新朋友';
-      }
-
-      // 发送欢迎消息前记录状态
-      log.info('CozeBot', '准备发送扫码入群欢迎消息:', {
-        roomId: room.id,
-        roomTopic: await room.topic(),
-        memberCount: (await room.memberAll()).length,
-        newMember: newMemberName,
-        originalText: text,
-      });
-
-      // 发送欢迎消息
-      await this.sendWelcomeMessage(room, [newMemberName]);
-    } catch (e) {
-      log.error('CozeBot', '处理群通知消息失败:', e);
-      if (e instanceof Error) {
-        log.error('CozeBot', {
-          error: e.message,
-          stack: e.stack,
-          roomId: room?.id,
-          text,
-        });
-      }
     }
   }
 
@@ -1133,71 +1016,6 @@ export class CozeBot {
     return `${year}-${month}-${day}`;
   }
 
-  // 修改私聊消息处理方法，添加消息保存
-  private async onPrivateMessage(talker: ContactInterface, text: string) {
-    try {
-      // 使用 talker.id 作为唯一标识
-      const userId = `private_${talker.id || talker.name() || 'unknown'}`;
-
-      // 保存用户发送的消息
-      await this.savePrivateMessage(talker, text);
-
-      const chatgptReplyMessage = await this.onChat(text, userId);
-      if (!chatgptReplyMessage) {
-        return;
-      }
-
-      await this.reply(talker, chatgptReplyMessage);
-
-      // 保存AI的回复消息
-      await this.savePrivateMessage(this.bot.currentUser, chatgptReplyMessage);
-    } catch (e) {
-      log.error('CozeBot', 'Failed to handle private message:', e);
-    }
-  }
-
-  // reply to group message
-  private async onGroupMessage(room: RoomInterface, text: string, name: string) {
-    try {
-      // 添加更详细的room对象信息日志
-      const roomInfo = {
-        roomId: room.id,
-        isReady: room.isReady,
-        memberCount: (await room.memberAll()).length,
-        roomType: room.toString(),
-      };
-      log.info('CozeBot', '[正常群聊] Room详细信息: ' + JSON.stringify(roomInfo, null, 2));
-
-      // 使用 room.id + talker.id 作为唯一标识
-      const userId = `group_${room.id}_user_${name}`;
-
-      // 保存用户的原始消息
-      const talker = await room.member(name);
-      if (talker) {
-        await this.saveGroupMessage(room, talker, text);
-      }
-
-      const chatgptReplyMessage = await this.onChat(text, userId);
-      if (!chatgptReplyMessage) {
-        return;
-      }
-
-      const wholeReplyMessage = `${text}\n----------\n${chatgptReplyMessage}`;
-      const sendInfo = {
-        roomId: room.id,
-        messageLength: wholeReplyMessage.length,
-        isReady: room.isReady,
-      };
-      log.info('CozeBot', '[正常群聊] 准备发送回复，Room状态: ' + JSON.stringify(sendInfo, null, 2));
-      await this.reply(room, wholeReplyMessage);
-
-      // 保存AI回复到群聊记录
-      await this.saveGroupMessage(room, this.bot.currentUser, chatgptReplyMessage);
-    } catch (e) {
-      log.error('CozeBot', 'Failed to handle group message:', e);
-    }
-  }
-
   // 获取群成员显示名称的辅助方法
   private async getMemberDisplayName(room: RoomInterface, member: ContactInterface): Promise<string> {
     try {
@@ -1217,36 +1035,25 @@ export class CozeBot {
     }
   }
 
-  private async sendWelcomeMessage(room: RoomInterface, names: string[]): Promise<void> {
+  public async sendWelcomeMessage(room: RoomInterface, names: string[]): Promise<void> {
     const maxRetries = 3;
     let retryCount = 0;
     
     while (retryCount < maxRetries) {
       try {
-        // 生成基础欢迎语
         const welcomeMessage = this.WELCOME_MESSAGE_TEMPLATE.replace('{names}', names.join('、'));
-        
-        // 保存欢迎消息到本地（使用 null 作为 talker，表示系统消息）
         await this.saveGroupMessage(room, null, welcomeMessage);
         
-        // 生成AI回复
         const userId = `group_${room.id}_welcome`;
         const aiReplyMessage = await this.onChat(welcomeMessage, userId);
         
         if (aiReplyMessage) {
-          // 组合完整消息
           const wholeReplyMessage = `${welcomeMessage}\n----------\n${aiReplyMessage}`;
-          
-          // 发送消息
           await this.reply(room, wholeReplyMessage);
-          
-          // 保存AI回复（使用机器人自身作为发送者）
           await this.saveGroupMessage(room, this.bot.currentUser, aiReplyMessage);
-          
           log.info('CozeBot', `欢迎消息发送成功: ${room.id}`);
           return;
         }
-        
       } catch (e) {
         retryCount++;
         const delay = 1000 * retryCount;
@@ -1254,7 +1061,133 @@ export class CozeBot {
         await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
-    
     log.error('CozeBot', `发送欢迎消息失败，已达到最大重试次数: ${room.id}`);
+  }
+
+  private isValidJoinMessage(content: string): boolean {
+    // 扫码入群消息 - 多种模式匹配
+    const scanPatterns = [
+      /通过扫描.*二维码加入群聊/,
+      /通过扫码.*加入群聊/,
+      /通过扫描.*分享的二维码加入群聊/
+    ];
+    
+    for (const pattern of scanPatterns) {
+      if (pattern.test(content)) {
+        log.info('CozeBot', `检测到扫码入群消息: ${content}`);
+        return true;
+      }
+    }
+    
+    // 邀请入群消息 - 严格匹配
+    if (content.includes('邀请') && content.includes('加入了群聊')) {
+      log.info('CozeBot', `检测到邀请入群消息: ${content}`);
+      return true;
+    }
+    
+    log.info('CozeBot', `非入群消息: ${content}`);
+    return false;
+  }
+
+  // 将私有方法改为公共方法
+  public isMentioned(text: string): boolean {
+    const textMention = `@${this.botName}`;
+    return text.includes(textMention);
+  }
+
+  public hasKeyword(text: string): boolean {
+    return text.includes('恭喜发财');
+  }
+
+  public extractContent(text: string): string {
+    const textMention = `@${this.botName}`;
+    if (text.includes(textMention)) {
+      const mentionIndex = text.indexOf(textMention);
+      const beforeMention = text.slice(0, mentionIndex).trim();
+      const afterMention = text.slice(mentionIndex + textMention.length).trim();
+      return [beforeMention, afterMention].filter(Boolean).join(' ');
+    }
+    return text;
+  }
+
+  // 添加缺失的 isNonsense 方法
+  public isNonsense(talker: ContactInterface, messageType: MessageType, text: string): boolean {
+    // 处理特定类型的消息
+    if (messageType === MessageType.Unknown || 
+        messageType === MessageType.Recalled) {
+      return true;
+    }
+
+    return (
+      (this.disableSelfChat && talker.self()) ||
+      talker.name().includes('微信') ||
+      text.includes('收到一条视频/语音聊天消息，请在手机上查看') ||
+      text.includes('收到红包，请在手机上查看') ||
+      text.includes('/cgi-bin/mmwebwx-bin/webwxgetpubliclinkimg')
+    );
+  }
+
+  // 将私有方法改为公共方法
+  public async saveMessage(message: Message): Promise<void> {
+    const room = message.room();
+    if (room) {
+      await this.saveGroupMessage(room, message.talker(), message.text());
+    } else {
+      await this.savePrivateMessage(message.talker(), message.text());
+    }
+  }
+
+  // 实现 ICozeBotMessageHandler 接口的方法
+  public async onGroupMessage(room: RoomInterface, text: string, name: string): Promise<void> {
+    try {
+      const roomInfo = {
+        roomId: room.id,
+        isReady: room.isReady,
+        memberCount: (await room.memberAll()).length,
+        roomType: room.toString(),
+      };
+      log.info('CozeBot', '[正常群聊] Room详细信息: ' + JSON.stringify(roomInfo, null, 2));
+
+      const userId = `group_${room.id}_user_${name}`;
+      const talker = await room.member(name);
+      if (talker) {
+        await this.saveGroupMessage(room, talker, text);
+      }
+
+      const chatgptReplyMessage = await this.onChat(text, userId);
+      if (!chatgptReplyMessage) {
+        return;
+      }
+
+      const wholeReplyMessage = `${text}\n----------\n${chatgptReplyMessage}`;
+      const sendInfo = {
+        roomId: room.id,
+        messageLength: wholeReplyMessage.length,
+        isReady: room.isReady,
+      };
+      log.info('CozeBot', '[正常群聊] 准备发送回复，Room状态: ' + JSON.stringify(sendInfo, null, 2));
+      await this.reply(room, wholeReplyMessage);
+
+      await this.saveGroupMessage(room, this.bot.currentUser, chatgptReplyMessage);
+    } catch (e) {
+      log.error('CozeBot', 'Failed to handle group message:', e);
+    }
+  }
+
+  public async onPrivateMessage(talker: ContactInterface, text: string): Promise<void> {
+    try {
+      const userId = `private_${talker.id || talker.name() || 'unknown'}`;
+      await this.savePrivateMessage(talker, text);
+
+      const chatgptReplyMessage = await this.onChat(text, userId);
+      if (!chatgptReplyMessage) {
+        return;
+      }
+
+      await this.reply(talker, chatgptReplyMessage);
+      await this.savePrivateMessage(this.bot.currentUser, chatgptReplyMessage);
+    } catch (e) {
+      log.error('CozeBot', 'Failed to handle private message:', e);
+    }
   }
 }
