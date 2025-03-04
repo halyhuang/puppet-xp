@@ -1,5 +1,6 @@
 import { Message } from "wechaty";
 import { ContactInterface, RoomInterface } from "wechaty/impls";
+import { types } from "wechaty-puppet";
 import { MessageType } from "../types/message.js";
 
 export interface ICozeBotMessageHandler {
@@ -13,7 +14,7 @@ export interface ICozeBotMessageHandler {
   sendWelcomeMessage(room: RoomInterface, names: string[]): Promise<void>;
   
   // 消息判断方法
-  shouldSendToModel(messageType: MessageType, text: string): boolean;
+  shouldSendToModel(messageType: types.Message, text: string): boolean;
   shouldSendWelcomeMessage(messageType: MessageType, text: string): boolean;
   isMentioned(text: string): boolean;
   hasKeyword(text: string): boolean;
