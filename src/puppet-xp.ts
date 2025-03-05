@@ -48,6 +48,12 @@ import { ImageDecrypt } from './pure-functions/image-decrypt.js'
 import { XmlDecrypt } from './pure-functions/xml-msgpayload.js'
 // import type { Contact } from 'wechaty'
 
+interface ChatroomMemberInfo {
+  roomid: string
+  admin: string
+  roomMember: string[]
+}
+
 // 定义一个延时方法
 async function wait (ms:number) {
   return new Promise(resolve => setTimeout(resolve, ms))
@@ -474,7 +480,7 @@ class PuppetXp extends PUPPET.Puppet {
                   if (this.contactStore[i] && this.contactStore[i]?.name === name) {
                     inviterId = i
                     // 使用 getMemberNickname 获取昵称
-                    const nickname = this.getMemberNickname(i, roomId)
+                    const nickname = await this.getChatroomMemberNickInfo(i, roomId)
                     inviter = {
                       ...this.contactStore[i],
                       name: nickname,
@@ -560,23 +566,14 @@ class PuppetXp extends PUPPET.Puppet {
   }
 
   // 同步获取群成员昵称
-  private getMemberNickname(memberId: string, roomId: string): string {
-    // 先从缓存获取
-    const roomCache = this.roomMemberCache[roomId]
-    if (roomCache?.[memberId]) {
-      return roomCache[memberId] || memberId
+  private async getChatroomMemberNickInfo(memberId: string, roomId: string): Promise<string> {
+    try {
+      const nickname = await this.sidecar.getChatroomMemberNickInfo(memberId, roomId)
+      return nickname || memberId
+    } catch (e) {
+      log.error('Failed to get chatroom member nick info:', e)
+      return memberId
     }
-
-    // 从 contactStore 获取
-    for (const i in this.contactStore) {
-      const contact = this.contactStore[i]
-      if (contact?.id === memberId) {
-        return contact.name || memberId
-      }
-    }
-
-    // 返回默认值
-    return memberId
   }
 
   // 同步获取群信息
@@ -609,7 +606,7 @@ class PuppetXp extends PUPPET.Puppet {
           for (const memberId of memberList) {
             try {
               // 使用同步方法
-              const nickname = this.sidecar.getChatroomMemberNickInfoSync(memberId, roomId)
+              const nickname = await this.getChatroomMemberNickInfo(memberId, roomId)
               if (roomCache) {
                 roomCache[memberId] = nickname || memberId
               }
@@ -632,35 +629,13 @@ class PuppetXp extends PUPPET.Puppet {
   }
 
   // 同步加载群列表
-  private loadRoomListSync(): void {
+  private async loadRoomListSync(): Promise<ChatroomMemberInfo[]> {
     try {
-      const ChatroomMemberInfo = this.sidecar.getChatroomMemberInfoSync()
-      const roomList = JSON.parse(ChatroomMemberInfo)
-      
-      for (const roomKey in roomList) {
-        const roomInfo = roomList[roomKey]
-        const roomId = roomInfo.roomid
-        if (roomId.indexOf('@chatroom') !== -1) {
-          const roomMember = roomInfo.roomMember || []
-          const contact = this.contactStore[roomId]
-          const topic = contact?.name || ''
-          const room = {
-            adminIdList: [ roomInfo.admin || '' ],
-            avatar: '',
-            external: false,
-            id: roomId,
-            memberIdList: roomMember,
-            ownerId: roomInfo.admin || '',
-            topic,
-          }
-          this.roomStore[roomId] = room
-          if (contact) {
-            delete this.contactStore[roomId]
-          }
-        }
-      }
-    } catch (err) {
-      log.error('loadRoomListSync fail:', err)
+      const ChatroomMemberInfo = await this.sidecar.getChatroomMemberInfo()
+      return JSON.parse(ChatroomMemberInfo || '[]')
+    } catch (e) {
+      log.error('Failed to get chatroom member info:', e)
+      return []
     }
   }
 
