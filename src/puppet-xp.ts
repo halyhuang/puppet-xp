@@ -466,76 +466,151 @@ class PuppetXp extends PUPPET.Puppet {
           if (text.indexOf('加入了群聊') !== -1) {
             const inviteeList = []
             let inviter = this.selfInfo
-            const arrInfo = text.split(/邀请|加入了群聊/)
+            let arrInfo: string[] = []
 
-            // 处理邀请者信息
-            if (arrInfo[0]) {
-              const name = arrInfo[0]?.split(/"|"/)[1] || ''
-              if (arrInfo[0] === '你') {
-                inviter = this.selfInfo
-              } else {
-                // 从缓存获取邀请者信息
-                let inviterId = ''
-                for (const i in this.contactStore) {
-                  if (this.contactStore[i] && this.contactStore[i]?.name === name) {
-                    inviterId = i
-                    // 使用 getMemberNickname 获取昵称
-                    const nickname = await this.getChatroomMemberNickInfo(i, roomId)
-                    inviter = {
-                      ...this.contactStore[i],
-                      name: nickname,
-                    }
-                    break
-                  }
-                }
-                
-                // 如果找不到邀请者信息，使用默认值
-                if (!inviterId) {
-                  inviter = {
-                    alias: '',
-                    avatar: '',
-                    friend: false,
-                    gender: PUPPET.types.ContactGender.Unknown,
-                    id: name,
-                    name: name,
-                    phone: [],
-                    type: PUPPET.types.Contact.Individual,
-                  }
-                  this.contactStore[name] = inviter
-                }
-              }
-            }
-
-            // 处理被邀请者信息
-            if (arrInfo[1]) {
-              const name = arrInfo[1]?.split(/"|"/)[1] || ''
-              if (arrInfo[1] === '你') {
-                inviteeList.push(this.selfInfo.id)
-              } else {
-                let inviteeId = ''
-                for (const i in this.contactStore) {
-                  if (this.contactStore[i] && this.contactStore[i]?.name === name) {
-                    inviteeId = i
-                    if (roomId && this.roomStore[roomId]?.memberIdList.includes(i)) {
-                      inviteeList.push(i)
+            // 处理扫码入群和邀请入群两种情况
+            if (text.indexOf('通过扫描') !== -1) {
+              // 扫码入群格式："xxx"通过扫描"xxx"分享的二维码加入群聊
+              arrInfo = text.split(/通过扫描|分享的二维码加入群聊/)
+              // 扫码入群时，第一个部分是入群者，第二个部分是分享二维码的人
+              if (arrInfo[0]) {
+                const name = arrInfo[0]?.split(/"|"/)[1] || ''
+                if (arrInfo[0] === '你') {
+                  inviteeList.push(this.selfInfo.id)
+                } else {
+                  let inviteeId = ''
+                  for (const i in this.contactStore) {
+                    if (this.contactStore[i] && this.contactStore[i]?.name === name) {
+                      inviteeId = i
+                      if (roomId && this.roomStore[roomId]?.memberIdList.includes(i)) {
+                        inviteeList.push(i)
+                      }
                     }
                   }
-                }
 
-                // 如果找不到被邀请者信息，使用默认值
-                if (!inviteeId) {
+                  // 如果找不到被邀请者信息，使用默认值
+                  if (!inviteeId) {
                     const invitee = {
                       alias: '',
                       avatar: '',
                       friend: false,
                       gender: PUPPET.types.ContactGender.Unknown,
                       id: name,
-                    name: name,
+                      name: name,
                       phone: [],
                       type: PUPPET.types.Contact.Individual,
                     }
                     this.contactStore[name] = invitee
                     inviteeList.push(name)
+                  }
+                }
+              }
+
+              // 处理分享二维码的人
+              if (arrInfo[1]) {
+                const name = arrInfo[1]?.split(/"|"/)[1] || ''
+                if (arrInfo[1] === '你') {
+                  inviter = this.selfInfo
+                } else {
+                  let inviterId = ''
+                  for (const i in this.contactStore) {
+                    if (this.contactStore[i] && this.contactStore[i]?.name === name) {
+                      inviterId = i
+                      const nickname = await this.getChatroomMemberNickInfo(i, roomId)
+                      inviter = {
+                        ...this.contactStore[i],
+                        name: nickname,
+                      }
+                      break
+                    }
+                  }
+                  
+                  // 如果找不到邀请者信息，使用默认值
+                  if (!inviterId) {
+                    inviter = {
+                      alias: '',
+                      avatar: '',
+                      friend: false,
+                      gender: PUPPET.types.ContactGender.Unknown,
+                      id: name,
+                      name: name,
+                      phone: [],
+                      type: PUPPET.types.Contact.Individual,
+                    }
+                    this.contactStore[name] = inviter
+                  }
+                }
+              }
+            } else {
+              // 邀请入群格式："xxx"邀请"xxx"加入了群聊
+              arrInfo = text.split(/邀请|加入了群聊/)
+              // 处理邀请者信息
+              if (arrInfo[0]) {
+                const name = arrInfo[0]?.split(/"|"/)[1] || ''
+                if (arrInfo[0] === '你') {
+                  inviter = this.selfInfo
+                } else {
+                  let inviterId = ''
+                  for (const i in this.contactStore) {
+                    if (this.contactStore[i] && this.contactStore[i]?.name === name) {
+                      inviterId = i
+                      const nickname = await this.getChatroomMemberNickInfo(i, roomId)
+                      inviter = {
+                        ...this.contactStore[i],
+                        name: nickname,
+                      }
+                      break
+                    }
+                  }
+                  
+                  // 如果找不到邀请者信息，使用默认值
+                  if (!inviterId) {
+                    inviter = {
+                      alias: '',
+                      avatar: '',
+                      friend: false,
+                      gender: PUPPET.types.ContactGender.Unknown,
+                      id: name,
+                      name: name,
+                      phone: [],
+                      type: PUPPET.types.Contact.Individual,
+                    }
+                    this.contactStore[name] = inviter
+                  }
+                }
+              }
+
+              // 处理被邀请者信息
+              if (arrInfo[1]) {
+                const name = arrInfo[1]?.split(/"|"/)[1] || ''
+                if (arrInfo[1] === '你') {
+                  inviteeList.push(this.selfInfo.id)
+                } else {
+                  let inviteeId = ''
+                  for (const i in this.contactStore) {
+                    if (this.contactStore[i] && this.contactStore[i]?.name === name) {
+                      inviteeId = i
+                      if (roomId && this.roomStore[roomId]?.memberIdList.includes(i)) {
+                        inviteeList.push(i)
+                      }
+                    }
+                  }
+
+                  // 如果找不到被邀请者信息，使用默认值
+                  if (!inviteeId) {
+                    const invitee = {
+                      alias: '',
+                      avatar: '',
+                      friend: false,
+                      gender: PUPPET.types.ContactGender.Unknown,
+                      id: name,
+                      name: name,
+                      phone: [],
+                      type: PUPPET.types.Contact.Individual,
+                    }
+                    this.contactStore[name] = invitee
+                    inviteeList.push(name)
+                  }
                 }
               }
             }
