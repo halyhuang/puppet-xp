@@ -17,7 +17,7 @@ modelConfig:
 # 备用模型配置
 fallbackModel:
   type: 'coze'
-  apiKey: 'pat_ygsMtPrzUC4WFglDSpLDRKvmGV9ZFsKPrrC4aNwtNYPG1sSW3dMxBcYjG7Snu9Lb'
+  apiKey: 'pat_loQQFv1Re6TFbIJSZAOIn2PntV4kvquscv2jHucrQ3nLnZNoZHWlZFLLubnRCm47'
   model: '7455608956103655434'
   apiEndpoint: 'https://api.coze.cn/v3'
 
