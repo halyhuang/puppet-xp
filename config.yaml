@@ -1,5 +1,12 @@
 # AI模型配置
 modelConfig:
+  type: 'coze'
+  apiKey: 'pat_LGOjCZuqi82jQwWPAJUbihpwFNiwo90chN2OqMvQQuIiyM16je52wVfor4WpbC8D'
+  model: '7455608956103655434'
+  apiEndpoint: 'https://api.coze.cn/v3'
+
+# 备用模型配置
+fallbackModel:
   type: 'anythingllm'
   apiKey: 'pat_LGOjCZuqi82jQwWPAJUbihpwFNiwo90chN2OqMvQQuIiyM16je52wVfor4WpbC8D'
   model: 'deepseek-r1:7b'
@@ -12,14 +19,7 @@ modelConfig:
     maxMessages: 2   # 最大保留最近2轮对话
     maxHours: 1      # 最大保留1小时的消息
   workspace:
-    workspaceId: 'private-assistant'  # 工作区 ID
-
-# 备用模型配置
-fallbackModel:
-  type: 'coze'
-  apiKey: 'pat_LGOjCZuqi82jQwWPAJUbihpwFNiwo90chN2OqMvQQuIiyM16je52wVfor4WpbC8D'
-  model: '7455608956103655434'
-  apiEndpoint: 'https://api.coze.cn/v3'
+    workspaceId: 'private-assistant'  # 工作区 ID  
 
 # 机器人配置
 cozeTriggerKeyword: '小助手'
