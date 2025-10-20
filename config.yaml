@@ -1,7 +1,7 @@
 # AI模型配置
 modelConfig:
   type: 'coze'
-  apiKey: 'pat_LGOjCZuqi82jQwWPAJUbihpwFNiwo90chN2OqMvQQuIiyM16je52wVfor4WpbC8D'
+  apiKey: 'pat_G1EV0gmTK8lPoxZRzM4U7tyMohU4695GOTQ5P9jYk4qqQOyso04Vb2aAsjXZoHu9'
   model: '7455608956103655434'
   apiEndpoint: 'https://api.coze.cn/v3'
 
